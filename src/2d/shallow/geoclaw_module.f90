@@ -14,6 +14,7 @@ module geoclaw_module
     save
 
     logical, private :: module_setup = .false.
+
     
     ! ========================================================================
     !  Constants

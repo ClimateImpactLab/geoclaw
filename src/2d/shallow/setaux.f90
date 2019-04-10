@@ -28,6 +28,8 @@ subroutine setaux(mbc,mx,my,xlow,ylow,dx,dy,maux,aux)
 
     use amr_module, only: mcapa, xupper, yupper, xlower, ylower, NEEDS_TO_BE_SET
     use amr_module, only: xperdom, yperdom
+    
+    use amr_module, only: timeIntegration, needs_to_be_set_counter
 
     use geoclaw_module, only: coordinate_system, earth_radius, deg2rad
     use geoclaw_module, only: sea_level, ambient_pressure
@@ -53,6 +55,8 @@ subroutine setaux(mbc,mx,my,xlow,ylow,dx,dy,maux,aux)
     real(kind=8) :: xper,yper,xperm,yperm,xperp,yperp
     character(len=*), parameter :: aux_format = "(2i4,4d15.3)"
     integer :: skipcount,iaux,ilo,jlo
+    
+    integer :: clock_startIntegration, clock_finishIntegration
 
     ! Lat-Long coordinate system in use, check input variables
     if (coordinate_system == 2) then
@@ -120,7 +124,7 @@ subroutine setaux(mbc,mx,my,xlow,ylow,dx,dy,maux,aux)
 
     ! Set bathymetry based on input files
     else if (mtopofiles > 0) then
-
+        call system_clock(clock_startIntegration)
         do jj=1-mbc,my+mbc
             ym = ylower + (jlo+jj-1.d0) * dy
             yp = ylower + (jlo+jj) * dy
@@ -137,8 +141,9 @@ subroutine setaux(mbc,mx,my,xlow,ylow,dx,dy,maux,aux)
                 if (aux(1,ii,jj) .ne. NEEDS_TO_BE_SET) then
                     cycle 
                 endif
-            
+                needs_to_be_set_counter = needs_to_be_set_counter + 1
                 topo_integral = 0.d0
+                
                 if ((y>yupper).or.(y<ylower).or.(x>xupper).or.(x<xlower)) then
                     if (.not.(xperdom .or. yperdom)) then
                         ! Skip setting as this cell sticks out of the physical
@@ -173,6 +178,8 @@ subroutine setaux(mbc,mx,my,xlow,ylow,dx,dy,maux,aux)
                 endif
             enddo
         enddo
+    call system_clock(clock_finishIntegration)
+    timeIntegration = timeIntegration + clock_finishIntegration - clock_startIntegration
     else
         print *, "ERROR:  There is no way to set bathymetry!  Either "
         print *, "        provide topography files or request topography "

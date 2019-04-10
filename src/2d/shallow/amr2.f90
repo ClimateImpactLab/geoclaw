@@ -90,6 +90,8 @@ program amr2
     use amr_module, only: rprint, sprint, tprint, uprint
 
     use amr_module, only: t0, tstart_thisrun
+    
+    use amr_module, only: timeIntegration, needs_to_be_set_counter
 
     ! Data modules
     use geoclaw_module, only: set_geo
@@ -720,6 +722,13 @@ program amr2
     write(*,format_string) &
             real(timeValout,kind=8) / real(clock_rate,kind=8), timeValoutCPU
     
+    !integration time
+    format_string="('Integration Time',1f14.3,'        ',i8,'  ')"
+    write(timing_unit,format_string) &
+            real(timeIntegration,kind=8) / real(clock_rate,kind=8), needs_to_be_set_counter
+    write(*,format_string) &
+            real(timeIntegration,kind=8) / real(clock_rate,kind=8), needs_to_be_set_counter
+            
     write(*,*)
     write(timing_unit,*)
     
