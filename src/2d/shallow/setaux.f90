@@ -28,7 +28,6 @@ subroutine setaux(mbc,mx,my,xlow,ylow,dx,dy,maux,aux)
 
     use amr_module, only: mcapa, xupper, yupper, xlower, ylower, NEEDS_TO_BE_SET
     use amr_module, only: xperdom, yperdom
-    
     use amr_module, only: timeIntegration, needs_to_be_set_counter
 
     use geoclaw_module, only: coordinate_system, earth_radius, deg2rad
@@ -41,6 +40,8 @@ subroutine setaux(mbc,mx,my,xlow,ylow,dx,dy,maux,aux)
     use friction_module, only: set_friction_field
 
     use topo_module
+    
+    use adjoint_module, only : adjoint_flagging,innerprod_index
 
     implicit none
 
@@ -106,6 +107,18 @@ subroutine setaux(mbc,mx,my,xlow,ylow,dx,dy,maux,aux)
         aux(pressure_index, :, :) = ambient_pressure
     endif
 
+    ! Innerproduct field if used
+    if (adjoint_flagging) then
+        do jj=1-mbc,my+mbc
+            do ii=1-mbc,mx+mbc
+                if (aux(1,ii,jj) .eq. NEEDS_TO_BE_SET) then
+                    aux(innerprod_index,ii,jj) = 0.d0
+                    endif
+                enddo
+            enddo
+    endif
+
+
     ! ==========================================================================
     !  Set Bathymetry
     ! Set analytical bathymetry here if requested
@@ -142,8 +155,8 @@ subroutine setaux(mbc,mx,my,xlow,ylow,dx,dy,maux,aux)
                     cycle 
                 endif
                 needs_to_be_set_counter = needs_to_be_set_counter + 1
+            
                 topo_integral = 0.d0
-                
                 if ((y>yupper).or.(y<ylower).or.(x>xupper).or.(x<xlower)) then
                     if (.not.(xperdom .or. yperdom)) then
                         ! Skip setting as this cell sticks out of the physical
@@ -178,8 +191,8 @@ subroutine setaux(mbc,mx,my,xlow,ylow,dx,dy,maux,aux)
                 endif
             enddo
         enddo
-    call system_clock(clock_finishIntegration)
-    timeIntegration = timeIntegration + clock_finishIntegration - clock_startIntegration
+        call system_clock(clock_finishIntegration)
+        timeIntegration = timeIntegration + clock_finishIntegration - clock_startIntegration
     else
         print *, "ERROR:  There is no way to set bathymetry!  Either "
         print *, "        provide topography files or request topography "
