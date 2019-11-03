@@ -319,6 +319,9 @@ contains
         ! Use weighted average
         wind_drag = dot_product(weight, drag)
 
+        ! TEST: multiply wind_drag by 5 just for funzies
+        wind_drag = wind_drag * 5
+
     end function powell_wind_drag
 
 
