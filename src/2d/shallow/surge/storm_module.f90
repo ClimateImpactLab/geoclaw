@@ -336,7 +336,7 @@ contains
         ! modify the constraint (originally 2.d-3) to allow
         ! higher values consistent with the power law relation
         ! given in Garratt (1976).
-        wind_drag = garret_wind_drag_limit(wind_speed, 4.d-3)
+        wind_drag = garret_wind_drag_limit(wind_speed, 35.d-3)
 
     end function garret_wind_drag
 
