@@ -259,7 +259,7 @@ contains
         real(kind=8) :: weight(3), drag(3)
 
         weight = 0.d0
-        drag = garret_wind_drag_limit(wind_speed, 4.5d-3)
+        drag = garret_wind_drag_limit(wind_speed, 3.5d-3)
 
         ! Calculate sector weights
         if (0.d0 <= theta .and. theta <= 40.d0) then
