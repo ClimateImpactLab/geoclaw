@@ -53,6 +53,9 @@ module storm_module
     ! Wind drag limit
     real(kind=8) :: WIND_DRAG_LIMIT = 3.5d-3
 
+    ! Wind drag multiplier
+    real(kind=8) :: WIND_DRAG_MULTIPLIER = 1.1
+
     ! Interface to each of the parameterized models
     abstract interface
         subroutine set_model_fields_def(maux, mbc, mx, my, xlower, ylower, &
@@ -325,7 +328,7 @@ contains
         endif
 
         ! Use weighted average
-        wind_drag = dot_product(weight, drag)
+        wind_drag = dot_product(weight, drag) * WIND_DRAG_MULTIPLIER
 
     end function powell_wind_drag
 
@@ -341,7 +344,7 @@ contains
         ! Input
         real(kind=8), intent(in) :: wind_speed, theta
 
-        wind_drag = garratt_wind_drag_limit(wind_speed, WIND_DRAG_LIMIT)
+        wind_drag = garratt_wind_drag_limit(wind_speed, WIND_DRAG_LIMIT) * WIND_DRAG_MULTIPLIER
 
     end function garratt_wind_drag
 
