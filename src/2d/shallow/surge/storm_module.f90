@@ -54,7 +54,7 @@ module storm_module
     real(kind=8) :: WIND_DRAG_LIMIT = 3.5d-3
 
     ! Wind drag multiplier
-    real(kind=8) :: WIND_DRAG_MULTIPLIER = 1.5
+    real(kind=8) :: WIND_DRAG_MULTIPLIER = 2.0
 
     ! Interface to each of the parameterized models
     abstract interface
