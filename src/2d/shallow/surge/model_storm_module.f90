@@ -391,7 +391,7 @@ contains
                                        pressure_index, storm)
 
         use geoclaw_module, only: g => grav, rho_air, ambient_pressure
-        use geoclaw_module, only: coriolis, deg2rad, coordinate_system
+        use geoclaw_module, only: coriolis, deg2rad
         use geoclaw_module, only: spherical_distance
 
         use geoclaw_module, only: rad2deg
@@ -413,7 +413,7 @@ contains
         ! Local storage
         real(kind=8) :: x, y, r, theta, sloc(2), B
         real(kind=8) :: f, mwr, mws, Pc, Pa, dp, wind, tv(2), radius
-        real(kind=8) :: mod_mws, ramp, trans_speed_x, trans_speed_y
+        real(kind=8) :: mod_mws, trans_speed, ramp
         integer :: i,j
 
         ! Get interpolated storm data
@@ -425,7 +425,8 @@ contains
         ! Calculate Holland parameters
         ! Subtract translational speed of storm from maximum wind speed
         ! to avoid distortion in the Holland curve fit.  Added back later
-        mod_mws = mws - sqrt(tv(1)**2 + tv(2)**2)
+        trans_speed = sqrt(tv(1)**2 + tv(2)**2)
+        mod_mws = mws - trans_speed
 
         ! Convert wind speed (10 m) to top of atmospheric boundary layer
         mod_mws = mod_mws / atmos_boundary_layer
@@ -452,43 +453,39 @@ contains
                 x = xlower + (i-0.5d0) * dx   ! Degrees longitude
 
                 ! Calculate storm centric polar coordinate location of grid
-                ! cell center
-                if (coordinate_system == 2) then
-                    ! lat-long coordinates, uses Haversine formula
-                    r = spherical_distance(x, y, sloc(1), sloc(2))
-                    theta = atan2((y - sloc(2)) * DEG2RAD,(x - sloc(1)) * DEG2RAD)
-                else
-                    ! Strictly cartesian
-                    r = sqrt( (x - sloc(1))**2 + (y - sloc(2))**2)
-                    theta = atan2(y - sloc(2), x - sloc(1))
-                end if
+                ! cell center, uses Haversine formula
+                r = spherical_distance(x, y, sloc(1), sloc(2))
+                theta = atan2((y - sloc(2)) * DEG2RAD,(x - sloc(1)) * DEG2RAD)
 
                 ! Set pressure field
                 aux(pressure_index,i,j) = Pc + dp * exp(-(mwr / r)**B)
 
                 ! Speed of wind at this point
                 wind = sqrt((mwr / r)**B &
-                        * exp(1.d0 - (mwr / r)**B) * mod_mws**2.d0 &
+                        * exp(1.d0 - (mwr / r)**B) * mws**2.d0 &
                         + (r * f)**2.d0 / 4.d0) - r * f / 2.d0
-
-                ! Determine translation speed that should be added to final
-                ! storm wind speed.  This is tapered to zero as the storm wind
-                ! tapers to zero toward the eye of the storm and at long
-                ! distances from the storm
-                trans_speed_x = (abs(wind) / mod_mws) * tv(1)
-                trans_speed_y = (abs(wind) / mod_mws) * tv(2)
 
                 ! Convert wind velocity from top of atmospheric boundary layer
                 ! (which is what the Holland curve fit produces) to wind
                 ! velocity at 10 m above the earth's surface
+
                 ! Also convert from 1 minute averaged winds to 10 minute
                 ! averaged winds
                 wind = wind * atmos_boundary_layer * sampling_time
 
                 ! Velocity components of storm (assumes perfect vortex shape)
-                ! including addition of translation speed
-                aux(wind_index,i,j)   = -wind * sin(theta) + trans_speed_x
-                aux(wind_index+1,i,j) =  wind * cos(theta) + trans_speed_y
+                aux(wind_index,i,j)   = -wind * sin(theta)
+                aux(wind_index+1,i,j) =  wind * cos(theta)
+
+                ! Add the storm translation speed
+                ! Determine translation speed that should be added to final
+                ! storm wind speed.  This is tapered to zero as the storm wind
+                ! tapers to zero toward the eye of the storm and at long
+                ! distances from the storm
+                aux(wind_index,i,j) = aux(wind_index,i,j)                 &
+                                                    + (abs(wind) / mws) * tv(1)
+                aux(wind_index+1,i,j) = aux(wind_index+1,i,j)             &
+                                                    + (abs(wind) / mws) * tv(2)
 
                 ! Apply distance ramp down(up) to fields to limit scope
                 ramp = 0.5d0 * (1.d0 - tanh((r - radius) / RAMP_WIDTH))
@@ -712,13 +709,13 @@ contains
         ! Additional quantities of interest
         i = storm_index(t, storm)
         f = coriolis(sloc(2))
-        !tv = storm%velocity(:, i)
-        !Pa = ambient_pressure
-        !sloc = cle_storm_location(t, storm)
-        !f = coriolis(sloc(2))
-        !Pc = storm%central_pressure(i)
-        !mws = storm%max_wind_speed(i)
-        !mwr = storm%max_wind_radius(i)
+        tv = storm%velocity(:, i)
+        Pa = ambient_pressure
+        sloc = storm_location(t, storm)
+        f = coriolis(sloc(2))
+        Pc = storm%central_pressure(i)
+        mws = storm%max_wind_speed(i)
+        mwr = storm%max_wind_radius(i)
 
         ! Calculate CLE parameters
         ! Subtract translational speed of storm from maximum wind speed
