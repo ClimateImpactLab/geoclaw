@@ -65,11 +65,17 @@ module model_storm_module
     ! track to be close to but not equal the start time of the simulation
     real(kind=8), parameter :: TRACKING_TOLERANCE = 1d-10
 
-    ! Global constants #TODO: Some of these are in geoclaw already  
-    real(kind=8) :: pi=3.1415927 
-    real(kind=8) :: omega=7.2921e-5
+    ! Global constants #TODO: Some of these are in geoclaw already
     real(kind=8) :: chi=1.0
     real(kind=8) :: alpha=1.0
+
+    ! Variables for CLE model calculations
+    integer, PARAMETER :: res=2000
+    real(kind=8) :: v_vec(1:res), p_vec(1:res)
+    real(kind=8) :: m_out_vec(1:res)
+    real(kind=8) :: last_time=-1
+    real(kind=8) :: dr, r_a, r_0
+    integer :: in_res, out_res
 
 contains
 
@@ -664,7 +670,7 @@ contains
         use geoclaw_module, only: spherical_distance
 
         use geoclaw_module, only: rad2deg
-        
+
         implicit none
 
         ! Time of the wind field requested
@@ -680,36 +686,29 @@ contains
         real(kind=8), intent(inout) :: aux(maux,1-mbc:mx+mbc,1-mbc:my+mbc)
 
         ! Local storage
-        real(kind=8) :: x, y, r, theta, sloc(2) 
-        real(kind=8) :: f, mwr, mws, Pc, Pa, dp, wind, tv(2), radius 
-        real(kind=8) :: mod_mws, trans_speed, ramp 
-        integer :: i,j 
-        
-        ! Variables for CLE model calculations
-        integer, PARAMETER :: res=2000
-        real(kind=8), save :: v_vec(1:res), p_vec(1:res)
-        real(kind=8), save :: m_out_vec(1:res)
-        real(kind=8), save :: last_time=-1
-        real(kind=8), save :: dr, r_a, r_0
-        integer :: io_status
-        integer, save :: in_res, out_res
+        real(kind=8) :: x, y, r, theta, sloc(2)
+        real(kind=8) :: f, mwr, mws, Pc, Pa, dp, wind, tv(2), radius
+        real(kind=8) :: mod_mws, trans_speed, ramp
+        integer :: i,j
 
-        
+        integer :: io_status
+
+
         ! Additional local storage for CLE Model
         real(kind=8) :: v, next_loc(2)
         integer :: r_index
         real(kind=8) :: r_factor, t_factor
 
-        ! Output the pressure and velocity fields.  
-        ! Determines the radial wind ONLY IF called at a new time. 
+        ! Output the pressure and velocity fields.
+        ! Determines the radial wind ONLY IF called at a new time.
 
         !First, interpolate all of the relevant tracked storm parameters.
         call get_cle_storm_data(t,storm,sloc,tv,mwr,mws,Pc,radius)
 
-        ! Other quantities of interest 
-        Pa = ambient_pressure 
+        ! Other quantities of interest
+        Pa = ambient_pressure
 
-        ! Additional quantities of interest 
+        ! Additional quantities of interest
         i = storm_index(t, storm)
         f = coriolis(sloc(2))
         !tv = storm%velocity(:, i)
@@ -720,19 +719,22 @@ contains
         !mws = storm%max_wind_speed(i)
         !mwr = storm%max_wind_radius(i)
 
-        ! Calculate CLE parameters 
-        ! Subtract translational speed of storm from maximum wind speed 
+        ! Calculate CLE parameters
+        ! Subtract translational speed of storm from maximum wind speed
         ! to avoid distorition in the CLE curve fit. Added back later
-        trans_speed = sqrt(tv(1)**2 + tv(2)**2) 
-        mod_mws = mws - trans_speed 
-    
-        ! Convert wind speed (10 m) to top of atmospheric boundary layer 
-        mod_mws = mws - trans_speed 
-        
-        ! Fill array with CLE model parameters 
-        if (last_time /= t) then
+        trans_speed = sqrt(tv(1)**2 + tv(2)**2)
+        mod_mws = mws - trans_speed
+
+        ! Convert wind speed (10 m) to top of atmospheric boundary layer
+        mod_mws = mws - trans_speed
+
+        ! Fill array with CLE model parameters
+        if (abs(last_time - t) < 1.d-8) then
+
+            !$omp single
+
             ! Determine the wind profile, but only if the profile isn't already
-            ! saved. In v_vec and p_vec. 
+            ! saved. In v_vec and p_vec.
             last_time = t
             call solve_hurricane_wind_parameters(f,mwr,mws,res,r_0,r_a)
             dr = real(r_0) / (res - 1)
@@ -749,7 +751,7 @@ contains
 
             p_vec(1) = 0
             v_vec(1) = 0
-           
+
             do j=2, res
                 ! Combine inner and outer model into single radial wind profile.
                 if(j <= in_res) then
@@ -761,40 +763,43 @@ contains
                 ! Pressure is determined using the gradient wind equation.
                 p_vec(j) = p_vec(j - 1) + (v_vec(j)**2)/r + f*v_vec(j)
             end do
-           
+
             do j=1, res
                 ! Normalize pressure to match measurements.
                 p_vec(j) = (Pa - Pc)*p_vec(j)/p_vec(res) + Pc
             end do
-            
-            open(unit=4242, file='test.txt',status='replace', & 
-                 action='write',iostat=io_status) 
-            write(4242,*) v_vec 
+
+            ! open(unit=4242, file='test.txt',status='replace', &
+            !      action='write',iostat=io_status)
+            ! write(4242,*) v_vec
+
+            !$omp end single
+
         end if
-        
-        ! Set fields 
+
+        ! Set fields
         do j=1-mbc,my+mbc
            ! Assign a clockwise, radially symmetric wind field by piece-wise linear
            ! interpolation of v_vec.  Likewise with p_vec.
             y = ylower + (j-0.5d0) * dy ! Degrees latitude
             f = coriolis(y)
             do i=1-mbc,mx+mbc
-                x = xlower + (i-0.5d0) * dx ! Degrees longitude 
+                x = xlower + (i-0.5d0) * dx ! Degrees longitude
 
                 ! Calcuate storm centric polar coordinate location of grid
                 ! cell center, uses Haversine formula
                 r = spherical_distance(x, y, sloc(1), sloc(2))
                 r_index = floor(r/dr)
                 r_factor = (r - r_index * dr) / dr
-                r_index = r_index + 1 
+                r_index = r_index + 1
                 theta = atan2((y - sloc(2)) * DEG2RAD,(x-sloc(1))*DEG2RAD)
                 if (r_index < res) then
-                    aux(pressure_index, i, j) = (1 - r_factor) * p_vec(r_index) & 
-                                        + r_factor * p_vec(r_index + 1) 
-                    aux(wind_index, i, j) = -0.9 * ((1 - r_factor) * v_vec(r_index) & 
-                                        + r_factor * v_vec(r_index + 1)) * sin(theta)  
-                    aux(wind_index+1, i, j) = 0.9 * ((1 - r_factor) * v_vec(r_index) & 
-                                        + r_factor * v_vec(r_index + 1)) * cos(theta)  
+                    aux(pressure_index, i, j) = (1 - r_factor) * p_vec(r_index) &
+                                        + r_factor * p_vec(r_index + 1)
+                    aux(wind_index, i, j) = -0.9 * ((1 - r_factor) * v_vec(r_index) &
+                                        + r_factor * v_vec(r_index + 1)) * sin(theta)
+                    aux(wind_index+1, i, j) = 0.9 * ((1 - r_factor) * v_vec(r_index) &
+                                        + r_factor * v_vec(r_index + 1)) * cos(theta)
                 else
                     aux(pressure_index,i,j) = Pa
                     aux(wind_index,i,j) = 0
@@ -855,7 +860,7 @@ contains
 
         ! List of possible error conditions
         if (i <= 1) then
-            if (i == 0) then        
+            if (i == 0) then
                 print *,"Invalid storm forecast requested for t = ",t
                 print *,"Time requested is before any forecast data."
                 print *,"    first time = ",storm%track(1,1)
@@ -878,7 +883,7 @@ contains
             ! the pre-calculated m/s velocities from before
             x = latlon2xy(storm%track(2:3,i),storm%track(2:3,i))
             x = x + (t - storm%track(1,i)) * storm%velocity(:,i)
-            
+
             fn = [xy2latlon(x,storm%track(2:3,i)), &
                   storm%velocity(:,i), storm%max_wind_radius(i), &
                   storm%max_wind_speed(i), storm%central_pressure(i), &
@@ -907,230 +912,230 @@ contains
         radius = fn(8)
 
     end subroutine get_cle_storm_data
-    
+
     ! ==========================================================================
-    !  inner_derivative(f,r_m,v_m,r_a) 
-    !   Evaluate the derivative of the inner model with respect to the 
-    !   merge point radius. Fortran can not handle the computation of the 
-    !   derivative in one line, thus it is calculated by breaking it up. 
-    !   The analytical solution of the derivative is very messy, but possible 
-    !   to solve.  
+    !  inner_derivative(f,r_m,v_m,r_a)
+    !   Evaluate the derivative of the inner model with respect to the
+    !   merge point radius. Fortran can not handle the computation of the
+    !   derivative in one line, thus it is calculated by breaking it up.
+    !   The analytical solution of the derivative is very messy, but possible
+    !   to solve.
     ! ==========================================================================
     real(kind=8) function evaluate_inner_derivative(f,r_m,v_m,r_a,v_a) result(dMa)
-        
-        ! Input 
-        real(kind=8), intent(in) :: f, r_m, v_m, r_a, v_a 
-        
-        ! Variables 
-        real(kind=8) :: denominator, M_a  
 
-        ! Calculate necessary components of the derivative to make 
-        ! calculations easier  
+        ! Input
+        real(kind=8), intent(in) :: f, r_m, v_m, r_a, v_a
+
+        ! Variables
+        real(kind=8) :: denominator, M_a
+
+        ! Calculate necessary components of the derivative to make
+        ! calculations easier
         denominator = 2 - alpha + alpha * (r_a / r_m)**2
-        M_a = 0.5 * f * r_a**2 + r_a * v_a 
-        dMa = (2 * M_a / r_a) * (1/denominator) 
-     
-    end function evaluate_inner_derivative 
+        M_a = 0.5 * f * r_a**2 + r_a * v_a
+        dMa = (2 * M_a / r_a) * (1/denominator)
+
+    end function evaluate_inner_derivative
 
     ! ==========================================================================
-    !  evaluate_v_a(f,r_m,v_m,r_a)  
+    !  evaluate_v_a(f,r_m,v_m,r_a)
     !    Evaluates the inner velocity at the merge point that allows the inner
-    !    and outer model to be continuous. 
+    !    and outer model to be continuous.
     ! ==========================================================================
     real(kind=8) function evaluate_v_a(f,r_m,v_m,r_a) result(v_a)
-        
-        ! Input 
+
+        ! Input
         real(kind=8), intent(in) :: f, r_m, v_m, r_a
 
         v_a = ((2.0*(r_a/r_m)**2)/(2.0-alpha+alpha*(r_a/r_m)**2))**(1.0/(2.0-alpha))
-        v_a = v_a*(0.5*f*r_m**2 + r_m*v_m) 
+        v_a = v_a*(0.5*f*r_m**2 + r_m*v_m)
         v_a = v_a - 0.5*f*r_a**2
-        v_a = v_a/r_a  
-        
-    end function evaluate_v_a  
+        v_a = v_a/r_a
+
+    end function evaluate_v_a
 
 
     ! ==========================================================================
-    !  solve_r_0(f,r_a,v_a,res,r_0, r_guess, m_out)  
-    !    Determines the wind profile for a hurricane using 
-    !    the inner and outer model for the Chavas model. 
+    !  solve_r_0(f,r_a,v_a,res,r_0, r_guess, m_out)
+    !    Determines the wind profile for a hurricane using
+    !    the inner and outer model for the Chavas model.
     ! ==========================================================================
     subroutine solve_r_0(f, r_a, v_a, res, r_0, r_guess)
-    
-        ! Input 
+
+        ! Input
         real(kind=8), intent(in) :: f, r_a, v_a
         integer, intent(in) :: res
-        
-        ! Variables with less strict i/o  
-        real(kind=8) :: r_0, r_guess, m_diff, r_step, dr,r_m 
+
+        ! Variables with less strict i/o
+        real(kind=8) :: r_0, r_guess, m_diff, r_step, dr,r_m
         real(kind=8) :: m_out(1:res)
-        integer :: i  
+        integer :: i
 
-        ! Parameters  
-        real(kind=8), PARAMETER :: R_TOL=0.1  
-        integer :: STEP_FLAG=1 
+        ! Parameters
+        real(kind=8), PARAMETER :: R_TOL=0.1
+        integer :: STEP_FLAG=1
 
-        ! Intialize the guess        
-        r_0 = r_guess 
+        ! Intialize the guess
+        r_0 = r_guess
         r_step = r_guess
 
-        ! Golden section method to determine r_0, the radius 
+        ! Golden section method to determine r_0, the radius
         ! at which the wind's speed drops to zero.
-        do 
+        do
             call integrate_m_out(f, r_0, r_a, res, m_out)
             if (m_out(1) - 0.5*f*r_a**2 - r_a*v_a < 0) then
-                r_step = r_step/STEP_FLAG  
-                r_0 = r_0 + r_step   
+                r_step = r_step/STEP_FLAG
+                r_0 = r_0 + r_step
             else
-                r_step = r_step/2.0 
-                r_0 = r_0 - r_step 
-                STEP_FLAG = 2 
+                r_step = r_step/2.0
+                r_0 = r_0 - r_step
+                STEP_FLAG = 2
             end if
-            
-            ! Check the tolerance value 
-            if (r_step < R_TOL) then 
+
+            ! Check the tolerance value
+            if (r_step < R_TOL) then
                 r_guess = r_0
                 exit
             end if
-        end do  
-        
-    end subroutine solve_r_0     
+        end do
+
+    end subroutine solve_r_0
 
     ! ==========================================================================
-    !  integrate_m_out(f, r_0, r_a, res, m_out) 
-    !   Integrates from r_0 to r_a to determine the outer wind profile. 
+    !  integrate_m_out(f, r_0, r_a, res, m_out)
+    !   Integrates from r_0 to r_a to determine the outer wind profile.
     ! ==========================================================================
-    subroutine integrate_m_out(f,r_0,r_a,res,m_out) 
+    subroutine integrate_m_out(f,r_0,r_a,res,m_out)
 
-        ! Input variables 
+        ! Input variables
         real(kind=8), intent(in) :: f, r_0, r_a
-        integer, intent(in) :: res 
+        integer, intent(in) :: res
         real(kind=8), dimension(1:res) :: m_out
 
-        ! Parameters and Other variables 
-        real(kind=8) :: V_m, dr, r_guess, r_p 
-        integer :: i  
+        ! Parameters and Other variables
+        real(kind=8) :: V_m, dr, r_guess, r_p
+        integer :: i
 
-        ! Intialize 
-        m_out(res) = 0.5*f*r_0**2 
-        dr = (r_0 - r_a)/res  
-        r_p = r_0 - dr 
+        ! Intialize
+        m_out(res) = 0.5*f*r_0**2
+        dr = (r_0 - r_a)/res
+        r_p = r_0 - dr
         m_out(res-1) = 0.5*f*r_p**2 + r_p*f*(r_0-r_p)
- 
-        ! Integrates the outer model equation from r_0 to r_a 
+
+        ! Integrates the outer model equation from r_0 to r_a
         do i = res-2, 1, -1
             r_guess = r_p
-            r_p = r_guess - dr 
-            V_m = (m_out(i+1) - 0.5*f*r_p**2)/r_p 
-            m_out(i) = m_out(i+1) - chi*dr*((r_p*V_m)**2)/(r_0**2 - r_p**2) 
-        end do 
- 
+            r_p = r_guess - dr
+            V_m = (m_out(i+1) - 0.5*f*r_p**2)/r_p
+            m_out(i) = m_out(i+1) - chi*dr*((r_p*V_m)**2)/(r_0**2 - r_p**2)
+        end do
+
     end subroutine integrate_m_out
 
- 
+
     ! ==========================================================================
     !  solve_hurricane_wind_parameters(f, r_m, v_m, res, r_0, r_a)
-    !   Determine r_0, r_a, and v_a.  
-    !   Determine the merge point when given the f value. At this current 
-    !   moment we are using values of chi = 1.0 and alpha = 1.0. 
+    !   Determine r_0, r_a, and v_a.
+    !   Determine the merge point when given the f value. At this current
+    !   moment we are using values of chi = 1.0 and alpha = 1.0.
     ! ==========================================================================
     subroutine solve_hurricane_wind_parameters(f, r_m, v_m, res, r_0, r_a)
-    
-        ! Input 
+
+        ! Input
         real(kind=8), intent(in) :: f, r_m, v_m
-        integer, intent(in) :: res 
-    
-        ! Variables 
-        real(kind=8) :: r_0, r_0_guess, r_a, r_step, v_a  
+        integer, intent(in) :: res
+
+        ! Variables
+        real(kind=8) :: r_0, r_0_guess, r_a, r_step, v_a
         real(kind=8) :: slope_difference
-        real(kind=8) :: m_out(1:res) 
-        
+        real(kind=8) :: m_out(1:res)
+
         ! Parameters
-        real(kind=8), parameter :: r_tol = 0.1  
-        integer :: step_flag = 1, i 
+        real(kind=8), parameter :: r_tol = 0.1
+        integer :: step_flag = 1, i
 
         ! Parameters
         real(kind=8) :: dr, r
-        real(kind=8) :: inner_res, outer_res 
-        real(kind=8), dimension(1:res) :: v_out, v_in  
-        
-        ! Initialize guesses for merge and r_0 
-        r_a = 2.0*r_m 
-        r_0_guess = 5.0*r_m  
-        r_step = r_a  
-    
-        do 
+        real(kind=8) :: inner_res, outer_res
+        real(kind=8), dimension(1:res) :: v_out, v_in
+
+        ! Initialize guesses for merge and r_0
+        r_a = 2.0*r_m
+        r_0_guess = 5.0*r_m
+        r_step = r_a
+
+        do
             v_a = evaluate_v_a(f,r_m,v_m,r_a)
-            !print *, "v_a: ", v_a 
-            if (v_a < 0) then 
-                r_step = r_step/2 
-                r_a = r_a - r_step 
-                cycle 
-            end if 
-            
-            call solve_r_0(f,r_a,v_a,res,r_0,r_0_guess)  
-            
-            slope_difference = evaluate_inner_derivative(f,r_m,v_m,r_a,v_a) - & 
-                                chi*((r_a*v_a)**2)/(r_0**2 - r_a**2) 
-            if (slope_difference < 0) then 
-                r_step = r_step/2.0 
+            !print *, "v_a: ", v_a
+            if (v_a < 0) then
+                r_step = r_step/2
                 r_a = r_a - r_step
-                step_flag = 1  
+                cycle
+            end if
+
+            call solve_r_0(f,r_a,v_a,res,r_0,r_0_guess)
+
+            slope_difference = evaluate_inner_derivative(f,r_m,v_m,r_a,v_a) - &
+                                chi*((r_a*v_a)**2)/(r_0**2 - r_a**2)
+            if (slope_difference < 0) then
+                r_step = r_step/2.0
+                r_a = r_a - r_step
+                step_flag = 1
             else
-                r_step = r_step/step_flag 
-                r_a = r_a + r_step 
-            end if  
-            
-            if (r_step < r_tol) then 
-                exit 
-            end if 
-        end do  
- 
-    end subroutine solve_hurricane_wind_parameters  
+                r_step = r_step/step_flag
+                r_a = r_a + r_step
+            end if
+
+            if (r_step < r_tol) then
+                exit
+            end if
+        end do
+
+    end subroutine solve_hurricane_wind_parameters
 
     ! ==========================================================================
-    !  solve_wind_profile(f, r_m, v_m, res) 
+    !  solve_wind_profile(f, r_m, v_m, res)
     ! ==========================================================================
     subroutine solve_wind_profile(f, r_m, v_m, res)
-        
-        ! Input 
+
+        ! Input
         real(kind=8), intent(in) :: f, r_m, v_m
-        integer, intent(in) :: res 
-        real(kind=8), save :: r_0, r_a, v_a 
+        integer, intent(in) :: res
+        real(kind=8), save :: r_0, r_a, v_a
 
         ! Parameters
         real(kind=8) :: dr, r
-        real(kind=8) :: inner_res, outer_res 
-        real(kind=8), dimension(1:res) :: v_out, v_in, m_out  
-        integer :: i  
+        real(kind=8) :: inner_res, outer_res
+        real(kind=8), dimension(1:res) :: v_out, v_in, m_out
+        integer :: i
 
         call solve_hurricane_wind_parameters(f, r_m, v_m, res, r_0, r_a)
-        
-        ! Determine the inner model velocity vector 
+
+        ! Determine the inner model velocity vector
         dr = (r_a/res)
-        r = dr  
-        v_in(1) = 0 
-        
-  
+        r = dr
+        v_in(1) = 0
+
+
         do i = 2, res, 1
-            v_in(i) = evaluate_v_a(f, r_m, v_m, r) 
+            v_in(i) = evaluate_v_a(f, r_m, v_m, r)
             r = r + dr
         end do
-        
-        ! Determine the outer model velocity vector 
+
+        ! Determine the outer model velocity vector
         dr = (r_0 - r_a)/res
-        r = r_0 - dr 
+        r = r_0 - dr
         v_out(res) = 0
-        
-        call integrate_m_out(f, r_0, r_a, res, m_out) 
- 
-        do i = res-1, 1, -1 
-            v_out = (m_out(i) - 0.5*f*r**2)/r 
-            r = r - dr 
-        end do 
-        
-    end subroutine solve_wind_profile 
-   
+
+        call integrate_m_out(f, r_0, r_a, res, m_out)
+
+        do i = res-1, 1, -1
+            v_out = (m_out(i) - 0.5*f*r**2)/r
+            r = r - dr
+        end do
+
+    end subroutine solve_wind_profile
+
     ! ==========================================================================
     !  Use the SLOSH model to set the storm fields
     ! ==========================================================================
@@ -1571,11 +1576,11 @@ contains
                 !        * exp((1.d0 - (r / mwr)**B) * (1.d0/B))
                 wind = mws * (r / mwr) &
                         * exp((1.d0 - (r / mwr)))
-                ! Adjust wind values for account for when the wind is so 
-                ! small by this wind model and we essentially divide by zero. 
-                if (wind <= 1.d0) then 
+                ! Adjust wind values for account for when the wind is so
+                ! small by this wind model and we essentially divide by zero.
+                if (wind <= 1.d0) then
                     wind = 1.d0
-                end if  
+                end if
                 !wind = 2.d0
 
                 ! Convert wind velocity from top of atmospheric boundary layer
@@ -1645,7 +1650,7 @@ contains
         real(kind=8) :: x, y, r, theta, sloc(2), B
         real(kind=8) :: f, mwr, mws, Pc, Pa, dp, wind, tv(2), radius
         real(kind=8) :: mod_mws, trans_speed, ramp
-        real(kind=8) :: v_inner, v_outer, W 
+        real(kind=8) :: v_inner, v_outer, W
         integer :: i,j
 
         ! Get interpolated storm data
@@ -1697,14 +1702,14 @@ contains
                 ! Convert wind velocity from top of atmospheric boundary layer
                 ! (which is what the Holland curve fit produces) to wind
                 ! velocity at 10 m above the earth's surface
-                if (r < 0.9d0 * mwr) then 
+                if (r < 0.9d0 * mwr) then
                     wind = mws * (r / mwr)**0.45d0
-                !else if (r > 0.9d0 * mwr & r < 1.1d0 * mwr) then 
-                else if (r > 0.9d0) then 
-                    wind = 2.d0 
-                else 
-                    wind = 1.d0 
-                end if  
+                !else if (r > 0.9d0 * mwr & r < 1.1d0 * mwr) then
+                else if (r > 0.9d0) then
+                    wind = 2.d0
+                else
+                    wind = 1.d0
+                end if
 
                 ! Also convert from 1 minute averaged winds to 10 minute
                 ! averaged winds
