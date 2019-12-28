@@ -69,13 +69,13 @@ module model_storm_module
     real(kind=8) :: chi=1.0
     real(kind=8) :: alpha=1.0
 
-    ! Variables for CLE model calculations
-    integer, PARAMETER :: res=2000
-    real(kind=8) :: v_vec(1:res), p_vec(1:res)
-    real(kind=8) :: m_out_vec(1:res)
-    real(kind=8) :: last_time=-1
-    real(kind=8) :: dr, r_a, r_0
-    integer :: in_res, out_res
+    ! ! Variables for CLE model calculations
+    ! integer, PARAMETER :: res=2000
+    ! real(kind=8) :: v_vec(1:res), p_vec(1:res)
+    ! real(kind=8) :: m_out_vec(1:res)
+    ! real(kind=8) :: last_time=-1
+    ! real(kind=8) :: dr, r_a, r_0
+    ! integer :: in_res, out_res
 
 contains
 
@@ -693,6 +693,14 @@ contains
 
         integer :: io_status
 
+        ! Variables for CLE model calculations
+        integer, PARAMETER :: res=2000
+        real(kind=8) :: v_vec(1:res), p_vec(1:res)
+        real(kind=8) :: m_out_vec(1:res)
+        real(kind=8) :: last_time=-1
+        real(kind=8) :: dr, r_a, r_0
+        integer :: in_res, out_res
+
 
         ! Additional local storage for CLE Model
         real(kind=8) :: v, next_loc(2)
@@ -728,54 +736,54 @@ contains
         ! Convert wind speed (10 m) to top of atmospheric boundary layer
         mod_mws = mws - trans_speed
 
-        ! Fill array with CLE model parameters
-        if (abs(last_time - t) < 1.d-8) then
+        ! ! Fill array with CLE model parameters
+        ! if (abs(last_time - t) < 1.d-8) then
 
-            !$omp single
+        !     ---!$---omp single
 
-            ! Determine the wind profile, but only if the profile isn't already
-            ! saved. In v_vec and p_vec.
-            last_time = t
-            call solve_hurricane_wind_parameters(f,mwr,mws,res,r_0,r_a)
-            dr = real(r_0) / (res - 1)
-            !out_res = number of points in outer model/in_res = points in inner model
-            out_res = ceiling(real((res - 1) * (r_0 - r_a)) / r_0)
-            in_res = res - out_res
-            !Determine angular momentum profile for outer model
-            call integrate_m_out(f,r_0,r_0 - out_res*dr,out_res,m_out_vec)
-            do j= 1, out_res
-               !convert angular momentum to azimuthal velocity.
-               r = r_0 - (j-1)*r_0/res
-               m_out_vec(out_res + 1 - j) = (m_out_vec(out_res + 1 - j)- .5*f*r**2)/r
-            end do
+        ! Determine the wind profile, but only if the profile isn't already
+        ! saved. In v_vec and p_vec.
+        last_time = t
+        call solve_hurricane_wind_parameters(f,mwr,mws,res,r_0,r_a)
+        dr = real(r_0) / (res - 1)
+        !out_res = number of points in outer model/in_res = points in inner model
+        out_res = ceiling(real((res - 1) * (r_0 - r_a)) / r_0)
+        in_res = res - out_res
+        !Determine angular momentum profile for outer model
+        call integrate_m_out(f,r_0,r_0 - out_res*dr,out_res,m_out_vec)
+        do j= 1, out_res
+           !convert angular momentum to azimuthal velocity.
+           r = r_0 - (j-1)*r_0/res
+           m_out_vec(out_res + 1 - j) = (m_out_vec(out_res + 1 - j)- .5*f*r**2)/r
+        end do
 
-            p_vec(1) = 0
-            v_vec(1) = 0
+        p_vec(1) = 0
+        v_vec(1) = 0
 
-            do j=2, res
-                ! Combine inner and outer model into single radial wind profile.
-                if(j <= in_res) then
-                   r = (j - 1)*dr
-                   v_vec(j) = evaluate_v_a(f, mwr, mws, r)
-                else
-                   v_vec(j) = m_out_vec(j - in_res)
-                end if
-                ! Pressure is determined using the gradient wind equation.
-                p_vec(j) = p_vec(j - 1) + (v_vec(j)**2)/r + f*v_vec(j)
-            end do
+        do j=2, res
+            ! Combine inner and outer model into single radial wind profile.
+            if(j <= in_res) then
+               r = (j - 1)*dr
+               v_vec(j) = evaluate_v_a(f, mwr, mws, r)
+            else
+               v_vec(j) = m_out_vec(j - in_res)
+            end if
+            ! Pressure is determined using the gradient wind equation.
+            p_vec(j) = p_vec(j - 1) + (v_vec(j)**2)/r + f*v_vec(j)
+        end do
 
-            do j=1, res
-                ! Normalize pressure to match measurements.
-                p_vec(j) = (Pa - Pc)*p_vec(j)/p_vec(res) + Pc
-            end do
+        do j=1, res
+            ! Normalize pressure to match measurements.
+            p_vec(j) = (Pa - Pc)*p_vec(j)/p_vec(res) + Pc
+        end do
 
-            ! open(unit=4242, file='test.txt',status='replace', &
-            !      action='write',iostat=io_status)
-            ! write(4242,*) v_vec
+        ! open(unit=4242, file='test.txt',status='replace', &
+        !      action='write',iostat=io_status)
+        ! write(4242,*) v_vec
 
-            !$omp end single
-
-        end if
+        !     ----!$---omp end single
+        ! 
+        ! end if
 
         ! Set fields
         do j=1-mbc,my+mbc
