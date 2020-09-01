@@ -825,19 +825,18 @@ class Storm(object):
                 warnings.warn(missing_data_warning_str)
             
     def read_emanuel(
-            self, path, storm_name, velocity_varname='v_total', verbose=False):
+            self, path, storm_name, velocity_varname='v_total', seed_index=None, verbose=False):
         r"""Read in Kerry Emanuel's storm file
         This reads in the netcdf-formatted tracks from Kerry Emanuel.
-        Correspondence September 2018. Original storms have been converted
-        from matlab to netcdf format by mlimb@rhg.com and are at
-        /gcs/../coastal/storm_tracks/emmanuel_projections_2018-09-12/netcdf_added_velocity/.
+        Correspondence September 2018.The model, scenario, time period, and storm index 
+        must be found within the filename. e.g. ``ccsm4_rcp85_2007_2025_0``, 
+        ``hadgem5_rcp45_2035_2045_10``. ``model_scenario_period`` is equivalent to 
+        filename.
+        
         :Input:
         - *path* (string) Path to the file to be read.
         - *storm_name* (string) storm name containing information about
-         - *velocity_varname* (string) name of velocity variable in netCDF
-        model, scenario, time period, and storm index within the file.
-            ex. ccsm4_rcp85_2007_2025_0, hadgem5_rcp45_2035_2045_10
-            model_scenario_period is equivalent to filename.
+        - *velocity_varname* (string) name of velocity variable in netCDF
         Assumes these variables exist in Emanuel dataset:
            datetime
            longstore
@@ -846,11 +845,17 @@ class Storm(object):
            pstore (central pressure)
            v_total_max_ms
            bas (attribute)
+        - *seed_index* (int, optional) If the radii provided in this file have three 
+            dimensions (seed index, storm, time), rather than two, this must be
+            specified. It identifies which seed index to use.
+        - *verbose* (bool) Unused but needed for consistency in function signature
+           
         :Raises:
         - ImportError if xarray not found
         - KeyError if provided storm name is not found in
         given file (assumes path is correct)
         """
+        
         # try/except copied from read_ibtracs
         # imports that you don't need for other read functions
         try:
@@ -878,7 +883,18 @@ class Storm(object):
                 print("Provided storm name/index not found in "
                       "the file.")
                 raise e
-
+                
+            # make sure seed index is specified if exists
+            if "seed_index" in ds.dims:
+                assert isinstance(seed_index,int), (
+                    "If ``seed_index`` is a dimension in input file, must supply an "
+                    f"integer ``seed_index`` kwarg value. You supplied {seed_index}"
+                )
+                storm = storm.sel(seed_index=seed_index)
+                
+            # make sure we don't have additional dimensions we forgot to collapse over
+            assert storm.rmstore.ndim == 1
+            
             # set time
             # convert from numpy to python datetime
             # self.t is a list, as opposed to numpy array
