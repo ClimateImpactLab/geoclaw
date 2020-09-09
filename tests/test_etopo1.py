@@ -26,8 +26,8 @@ def test_etopo1_topo(make_plot=False, save=False):
         topo1 = topotools.read_netcdf('etopo1', extent=extent, verbose=True)    
         topo10 = topotools.read_netcdf('etopo1', extent=extent, 
                                         coarsen=10, verbose=True)
-    except OSError:
-        raise nose.SkipTest("NGDC server unavailable, skipping test")
+    except (OSError, RuntimeError):
+        raise nose.SkipTest("NGDC server misbehaving, skipping test")
 
     testdata_path = os.path.join(os.path.dirname(__file__), 'data', 'etopo1_10min.asc')
     if save:
