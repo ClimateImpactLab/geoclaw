@@ -5,6 +5,7 @@ import os
 import numpy
 import nose
 import os
+import warnings
 from clawpack.geoclaw import topotools
 
 
@@ -21,13 +22,20 @@ def test_etopo1_topo(make_plot=False, save=False):
         import netCDF4
     except ImportError:
         raise nose.SkipTest("netCDF4 not installed, skipping test")
-    
+
     try:
-        topo1 = topotools.read_netcdf('etopo1', extent=extent, verbose=True)    
+        topo1 = topotools.read_netcdf('etopo1', extent=extent, verbose=True)
+    except:
+        warnings.warn('Could not read etopo1 data, check if thredds server up')
+        raise nose.SkipTest("Reading etopo1 failed, skipping test")
+        
+
+    try:
         topo10 = topotools.read_netcdf('etopo1', extent=extent, 
-                                        coarsen=10, verbose=True)
-    except (OSError, RuntimeError):
-        raise nose.SkipTest("NGDC server misbehaving, skipping test")
+                                       coarsen=10, verbose=True)
+    except:
+        warnings.warn('Could not read etopo1 data, check if thredds server up')
+        raise nose.SkipTest("Reading etopo1 failed, skipping test")
 
     testdata_path = os.path.join(os.path.dirname(__file__), 'data', 'etopo1_10min.asc')
     if save:
@@ -53,23 +61,27 @@ def test_etopo1_topo(make_plot=False, save=False):
         plt.savefig(pname)
         print('Created %s' % pname)
     
-# def test_etopo1_xarray():
+def test_etopo1_xarray():
 
-#     try:
-#         import xarray
-#     except:
-#         raise nose.SkipTest("xarray not installed, skipping test")
+    try:
+        import xarray
+    except:
+        raise nose.SkipTest("xarray not installed, skipping test")
         
-#     topo10,topo10_xarray = topotools.read_netcdf('etopo1', extent=extent, 
-#                                                  return_xarray=True,
-#                                                  coarsen=10, verbose=True)
+    try:
+        topo10,topo10_xarray = topotools.read_netcdf('etopo1', extent=extent, 
+                                                     return_xarray=True,
+                                                     coarsen=10, verbose=True)
+    except:
+        warnings.warn('Could not read etopo1 data, check if thredds server up')
+        raise nose.SkipTest("Reading etopo1 failed, skipping test")
 
-#     testdata_path = os.path.join(testdir, 'data', 'etopo1_10min.asc')
-#     topo10input = topotools.Topography()
-#     topo10input.read(testdata_path, topo_type=3)
+    testdata_path = os.path.join(testdir, 'data', 'etopo1_10min.asc')
+    topo10input = topotools.Topography()
+    topo10input.read(testdata_path, topo_type=3)
     
-#     assert numpy.allclose(topo10_xarray['z'], topo10input.Z), \
-#            "topo10_xarray['z'] does not agree with archived data"
+    assert numpy.allclose(topo10_xarray['z'], topo10input.Z), \
+           "topo10_xarray['z'] does not agree with archived data"
     
 
 if __name__ == "__main__":
