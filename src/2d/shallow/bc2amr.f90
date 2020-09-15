@@ -88,7 +88,7 @@
 subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
                   xlo_patch, xhi_patch, ylo_patch, yhi_patch) 
 
-    use amr_module, only: mthbc, xlower, ylower, xupper, yupper
+    use amr_module, only: mthbc, xlower, ylower, xupper, yupper, nghost
     use amr_module, only: xperdom,yperdom,spheredom
     use geoclaw_module, only: sea_level
 
@@ -127,7 +127,8 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
 
         select case(mthbc(1))
             case(0) ! User defined boundary condition
-                max_bnd_val = maxval(abs(val(2, nxl + 1, :)))
+                ! only check columns that are not ghost cells
+                max_bnd_val = maxval(abs(val(2, nxl+1, 1+nghost:ncol-nghost)))
                 if (max_bnd_val > mom_norm_thresh) then
                     write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
                     call exit(1)
@@ -184,7 +185,8 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
 
         select case(mthbc(2))
             case(0) ! User defined boundary condition
-                max_bnd_val = maxval(abs(val(2, ibeg-1, :)))
+                ! only check columns that are not ghost cells
+                max_bnd_val = maxval(abs(val(2, ibeg - 1, 1+nghost:ncol-nghost)))
                 if (max_bnd_val > mom_norm_thresh) then
                     write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
                     call exit(2)
@@ -240,7 +242,8 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
 
         select case(mthbc(3))
             case(0) ! User defined boundary condition
-                max_bnd_val = maxval(abs(val(3, :, nyb +1)))
+                ! only check rows that are not ghost cells
+                max_bnd_val = maxval(abs(val(3, 1+nghost:ncol-nghost, nyb+1)))
                 if (max_bnd_val > mom_norm_thresh) then
                     write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
                     call exit(3)
@@ -299,7 +302,8 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
 
         select case(mthbc(4))
             case(0) ! User defined boundary condition
-                max_bnd_val = maxval(abs(val(3, :, jbeg - 1)))
+                ! only check rows that are not ghost cells
+                max_bnd_val = maxval(abs(val(3, 1+nghost:ncol-nghost, jbeg - 1)))
                 if (max_bnd_val > mom_norm_thresh) then
                     write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
                     call exit(4)
