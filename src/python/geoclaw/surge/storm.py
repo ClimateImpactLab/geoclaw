@@ -1030,7 +1030,7 @@ class Storm(object):
 
         with xr.open_dataset(path, drop_variables=["time"]) as ds:
             try:
-                storm = ds.sel(storm=storm_index).drop_vars("storm").dropna(dim="time")
+                storm = ds.sel(storm=storm_index, drop=True).dropna("time", how="all")
             except KeyError as e:
                 print("Provided storm name/index not found in " "the file.")
                 raise e
@@ -1044,7 +1044,7 @@ class Storm(object):
                 storm = storm.sel(ensemble=ensemble)
 
             # make sure we don't have additional dimensions we forgot to collapse over
-            assert storm.rmstore.ndim == 1
+            assert storm.rmstore.ndim == 1, storm.rmstore.dims
 
             # set time
             # convert from numpy to python datetime
