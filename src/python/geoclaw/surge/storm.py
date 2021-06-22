@@ -46,7 +46,8 @@ import datetime
 import numpy
 
 import clawpack.geoclaw.units as units
-import clawpack.clawutil.data
+from pathlib import Path
+from fsspec import FSMap
 
 # =============================================================================
 #  Common acronyms across formats
@@ -865,7 +866,8 @@ class Storm(object):
 
         import xarray as xr
 
-        with xr.open_dataset(path) as ds:
+        engine, backend_kwargs = _set_engine_kwargs(path)
+        with xr.open_dataset(path, engine=engine, backend_kwargs=backend_kwargs) as ds:
 
             # match on sid
             ds = ds.sel(storm=ds.sid == sid).squeeze()
@@ -1028,7 +1030,11 @@ class Storm(object):
 
         storm_index = int(storm_name.split("_")[-1])
 
-        with xr.open_dataset(path, drop_variables=["time"]) as ds:
+        engine, backend_kwargs = _set_engine_kwargs(path)
+
+        with xr.open_dataset(
+            path, drop_variables=["time"], engine=engine, backend_kwargs=backend_kwargs
+        ) as ds:
             try:
                 storm = ds.sel(storm=storm_index, drop=True).dropna("time", how="all")
             except KeyError as e:
@@ -2008,6 +2014,14 @@ def make_multi_structure(path):
                 fileWrite = open("Clipped_ATCFs/" + curTime + "/" + curTrack, "w")
                 fileWrite.writelines(line)
     return stormDict
+
+
+def _set_engine_kwargs(path):
+    if isinstance(path, FSMap) or Path(path).suffix == ".zarr":
+        return "zarr", {"consolidated": True}
+    elif Path(path).suffix == ".nc":
+        return "netcdf4", {}
+    raise ValueError(f"Cannot open {Path(path).suffix} file")
 
 
 if __name__ == "__main__":
