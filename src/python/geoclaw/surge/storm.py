@@ -1080,7 +1080,7 @@ class Storm(object):
             ### optional attributes ###
             # generating basin
             # AL and NA are both atlantic
-            if storm.bas[0] == "AL":
+            if storm.basin == "AL":
                 self.basin = "NA"
             else:
                 self.basin = ""
