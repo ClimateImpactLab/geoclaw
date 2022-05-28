@@ -33,21 +33,22 @@ workflow in a `setrun.py` file would do the following:
     - tcvitals (reading only)
 """
 
-from __future__ import print_function
-from __future__ import absolute_import
-from six.moves import range
+from __future__ import absolute_import, print_function
 
-import warnings
-import sys
-import os
 import argparse
 import datetime
+import os
+import sys
+import warnings
+from pathlib import Path
 
 import numpy
+import pandas as pd
+import xarray as xr
+from fsspec import FSMap
+from six.moves import range
 
 import clawpack.geoclaw.units as units
-from pathlib import Path
-from fsspec import FSMap
 
 # =============================================================================
 #  Common acronyms across formats
@@ -980,9 +981,7 @@ class Storm(object):
             if (self.max_wind_radius.max()) == -1 or (self.storm_radius.max() == -1):
                 warnings.warn(missing_data_warning_str)
 
-    def read_emanuel(
-        self, path, storm_name, velocity_varname="v_total", ensemble=None, verbose=False
-    ):
+    def read_emanuel(self, path, storm_index, ensemble=None, verbose=False):
         r"""Read in Kerry Emanuel's storm file
         This reads in the netcdf-formatted tracks from Kerry Emanuel.
         Correspondence September 2018.The model, scenario, time period, and storm index
@@ -990,18 +989,17 @@ class Storm(object):
         ``hadgem5_rcp45_2035_2045_10``. ``model_scenario_period`` is equivalent to
         filename.
 
-        :Input:
-        - *path* (string) Path to the file to be read.
-        - *storm_name* (string) storm name containing information about
-        - *velocity_varname* (string) name of velocity variable in netCDF
         Assumes these variables exist in Emanuel dataset:
            datetime
            longstore
            latstore
            rmstore (central max wind radius)
            pstore (central pressure)
-           v_total_max_ms
-           bas (attribute)
+           v_total
+
+        :Input:
+        - *path* (string) Path to the zarr store to be read.
+        - *storm_index* (int) Integer index of storm to read
         - *ensemble* (int, optional) If there are multiple ensemble members created
             for each track, the index of the member that you would like to model
             must be specified.
@@ -1013,30 +1011,9 @@ class Storm(object):
         given file (assumes path is correct)
         """
 
-        # try/except copied from read_ibtracs
-        # imports that you don't need for other read functions
-        try:
-            import xarray as xr
-        except ImportError as e:
-            print("Emanuel tracks currently require xarray " "to work.")
-            raise e
-
-        def _convert_to_python_datetime(np_date):
-            """Convert numpy.datetime64 to python datetime.datetime"""
-            (year, month, day_hour) = str(np_date.values).split("-")
-            day = day_hour[0:2]
-            hour = day_hour[3:5]
-            return datetime.datetime(int(year), int(month), int(day), int(hour))
-
-        storm_index = int(storm_name.split("_")[-1])
-
-        engine, backend_kwargs = _set_engine_kwargs(path)
-
-        with xr.open_dataset(
-            path, drop_variables=["time"], engine=engine, backend_kwargs=backend_kwargs
-        ) as ds:
+        with xr.open_zarr(path, drop_variables=["time"], chunks=None) as ds:
             try:
-                storm = ds.sel(storm=storm_index, drop=True).dropna("time", how="all")
+                storm = ds.sel(storm=storm_index, drop=True)
             except KeyError as e:
                 print("Provided storm name/index not found in " "the file.")
                 raise e
@@ -1047,7 +1024,10 @@ class Storm(object):
                     "If ``ensemble`` is a dimension in input file, must supply an "
                     f"integer ``ensemble`` kwarg value. You supplied {ensemble}"
                 )
-                storm = storm.sel(ensemble=ensemble)
+                storm = storm.sel(ensemble=ensemble, drop=True)
+
+            # drop NaT vals
+            storm = storm.sel(time=storm.v_total.notnull())
 
             # make sure we don't have additional dimensions we forgot to collapse over
             assert storm.rmstore.ndim == 1, storm.rmstore.dims
@@ -1055,7 +1035,7 @@ class Storm(object):
             # set time
             # convert from numpy to python datetime
             # self.t is a list, as opposed to numpy array
-            self.t = [_convert_to_python_datetime(d) for d in storm["datetime"]]
+            self.t = pd.to_datetime(storm.datetime).to_pydatetime().tolist()
 
             # eye location (n by n)
             self.eye_location = numpy.vstack(
@@ -1064,7 +1044,7 @@ class Storm(object):
 
             # max wind speed (m/s)
             # array of single value
-            self.max_wind_speed = storm[velocity_varname].values
+            self.max_wind_speed = storm.v_total.values
 
             # 'The radius (km) of maximum circular wind
             # along each track' -> convert to m
@@ -1073,20 +1053,12 @@ class Storm(object):
             # central pressure (Pascal)
             self.central_pressure = units.convert(storm.pstore, "hPa", "Pa").values
 
+            # outer storm radius
+            self.storm_radius = units.convert(storm.storm_radius, "km", "m").values
+
             # storm name
-            self.name = storm_name
-            # ex. miroc5_rcp45_2055_2065_10
-
-            ### optional attributes ###
-            # generating basin
-            # AL and NA are both atlantic
-            if storm.basin == "AL":
-                self.basin = "NA"
-            else:
-                self.basin = ""
-
-            # ID (depends on format)
-            self.ID = str(storm_index)
+            self.name = storm.sid.item()
+            self.ID = self.name
 
             # attributes not available
             #############
@@ -1101,10 +1073,6 @@ class Storm(object):
 
             # use last timestep (recommended by IB)
             self.time_offset = self.t[-1]
-
-            # set storm radius to geoclaw's missing data val (-1)
-            self.storm_radius = numpy.empty(num_timesteps)
-            self.storm_radius.fill(-1)
 
     def read_jma(self, path, verbose=False):
         r"""Read in JMA formatted storm file
