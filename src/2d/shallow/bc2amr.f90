@@ -131,7 +131,7 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
                 max_bnd_val = maxval(abs(val(2, nxl+1, 1+nghost:ncol-nghost)))
                 if (max_bnd_val > mom_norm_thresh) then
                     write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
-                    call exit(1)
+                    call exit(2)
                 endif
                 do j = 1, ncol
                     do i=1, nxl
@@ -189,7 +189,7 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
                 max_bnd_val = maxval(abs(val(2, ibeg - 1, 1+nghost:ncol-nghost)))
                 if (max_bnd_val > mom_norm_thresh) then
                     write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
-                    call exit(2)
+                    call exit(3)
                 endif
                 do i = ibeg, nrow
                     do j = 1, ncol
@@ -246,7 +246,7 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
                 max_bnd_val = maxval(abs(val(3, 1+nghost:ncol-nghost, nyb+1)))
                 if (max_bnd_val > mom_norm_thresh) then
                     write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
-                    call exit(3)
+                    call exit(4)
                 endif
 
                 do j = 1, nyb
@@ -306,7 +306,7 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
                 max_bnd_val = maxval(abs(val(3, 1+nghost:ncol-nghost, jbeg - 1)))
                 if (max_bnd_val > mom_norm_thresh) then
                     write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
-                    call exit(4)
+                    call exit(5)
                 endif
                 do j = jbeg, ncol
                     do i = 1, nrow
