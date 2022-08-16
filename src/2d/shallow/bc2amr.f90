@@ -116,6 +116,13 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
         return
     end if
 
+    ! Another case occurs when this grid covers only ghost cells (seems to happen only
+    ! when domain is periodic). In this case, we don't need to set anything and, if we
+    ! try, the array indexing will be out of bounds.
+    if (xlo_patch == xupper .or. xhi_patch == xlower .or. ylo_patch == yupper .or. yhi_patch == ylower) then
+        return
+    end if
+
     ! Each check has an initial check to ensure that the boundary is a real
     ! boundary condition and otherwise skips the code.  Otherwise 
     !-------------------------------------------------------
@@ -251,19 +258,7 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
                 nxr = max(int((xhi_patch - xupper + hxmarg) / hx), 0)
                 max_bnd_val = maxval(abs(val(3, 1+nxl:nrow-nxr, nyb+1)))
                 if (max_bnd_val > mom_norm_thresh) then
-                    print *, abs(val(3, 1:nrow, nyb+1))
-                    print *, abs(val(3, 1:nrow, nyb+2))
-                    write(0,"('nxl: ',i10)") nxl
-                    write(0,"('nxr: ',i10)") nxr
-                    write(0,"('nyb: ',i10)") nyb
-                    write(0,"('sizevalx: ',i10)") size(val, 2)
-                    write(0,"('sizevaly: ',i10)") size(val, 3)
-                    write(0,"('maxloc: ',i10)") maxloc(abs(val(3, 1+nxl:nrow-nxr, nyb+1)))
-                    write(0,"('ylo_patch: ',f16.8)") ylo_patch
-                    write(0,"('xlo_patch: ',f16.8)") xlo_patch
-                    write(0,"('yhi_patch: ',f16.8)") yhi_patch
-                    write(0,"('xhi_patch: ',f16.8)") xhi_patch
-                    write(0,"('Boundary velocity error south: ',e16.1)") max_bnd_val / 100
+                    write(0,"('Boundary velocity error south: ',f16.1)") max_bnd_val
                     call exit(4)
                 endif
 
@@ -323,15 +318,6 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
                 ! only check cells that are not ghost cells
                 nxl = max(int((xlower + hxmarg - xlo_patch) / hx), 0)
                 nxr = max(int((xhi_patch - xupper + hxmarg) / hx), 0)
-                write(0,"('nxl: ',i10)") nxl
-                write(0,"('nxr: ',i10)") nxr
-                write(0,"('jgeg: ',i10)") jbeg
-                write(0,"('sizevalx: ',i10)") size(val, 2)
-                write(0,"('sizevaly: ',i10)") size(val, 3)
-                write(0,"('ylo_patch: ',f16.8)") ylo_patch
-                write(0,"('xlo_patch: ',f16.8)") xlo_patch
-                write(0,"('yhi_patch: ',f16.8)") yhi_patch
-                write(0,"('xhi_patch: ',f16.8)") xhi_patch
                 max_bnd_val = maxval(abs(val(3, 1+nxl:nrow-nxr, jbeg - 1)))
                 if (max_bnd_val > mom_norm_thresh) then
                     write(0,"('Boundary velocity error north: ',f16.1)") max_bnd_val
