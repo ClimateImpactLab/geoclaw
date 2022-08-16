@@ -128,9 +128,11 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
         select case(mthbc(1))
             case(0) ! User defined boundary condition
                 ! only check cells that are not ghost cells
-                max_bnd_val = maxval(abs(val(2, nxl+1, 1+nghost:ncol-nghost)))
+                nyb = max(int((ylower + hymarg - ylo_patch) / hy), 0)
+                nyt = max(int((yhi_patch - yupper + hymarg) / hy), 0)
+                max_bnd_val = maxval(abs(val(2, nxl+1, nyb+1:ncol-nyt)))
                 if (max_bnd_val > mom_norm_thresh) then
-                    write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
+                    write(0,"('Boundary velocity error west: ',f16.1)") max_bnd_val
                     call exit(2)
                 endif
                 do j = 1, ncol
@@ -186,9 +188,11 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
         select case(mthbc(2))
             case(0) ! User defined boundary condition
                 ! only check cells that are not ghost cells
-                max_bnd_val = maxval(abs(val(2, ibeg - 1, 1+nghost:ncol-nghost)))
+                nyb = max(int((ylower + hymarg - ylo_patch) / hy), 0)
+                nyt = max(int((yhi_patch - yupper + hymarg) / hy), 0)
+                max_bnd_val = maxval(abs(val(2, ibeg - 1, 1+nyb:ncol-nyt)))
                 if (max_bnd_val > mom_norm_thresh) then
-                    write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
+                    write(0,"('Boundary velocity error east: ',f16.1)") max_bnd_val
                     call exit(3)
                 endif
                 do i = ibeg, nrow
@@ -243,9 +247,23 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
         select case(mthbc(3))
             case(0) ! User defined boundary condition
                 ! only check cells that are not ghost cells
-                max_bnd_val = maxval(abs(val(3, 1+nghost:nrow-nghost, nyb+1)))
+                nxl = max(int((xlower + hxmarg - xlo_patch) / hx), 0)
+                nxr = max(int((xhi_patch - xupper + hxmarg) / hx), 0)
+                max_bnd_val = maxval(abs(val(3, 1+nxl:nrow-nxr, nyb+1)))
                 if (max_bnd_val > mom_norm_thresh) then
-                    write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
+                    print *, abs(val(3, 1:nrow, nyb+1))
+                    print *, abs(val(3, 1:nrow, nyb+2))
+                    write(0,"('nxl: ',i10)") nxl
+                    write(0,"('nxr: ',i10)") nxr
+                    write(0,"('nyb: ',i10)") nyb
+                    write(0,"('sizevalx: ',i10)") size(val, 2)
+                    write(0,"('sizevaly: ',i10)") size(val, 3)
+                    write(0,"('maxloc: ',i10)") maxloc(abs(val(3, 1+nxl:nrow-nxr, nyb+1)))
+                    write(0,"('ylo_patch: ',f16.8)") ylo_patch
+                    write(0,"('xlo_patch: ',f16.8)") xlo_patch
+                    write(0,"('yhi_patch: ',f16.8)") yhi_patch
+                    write(0,"('xhi_patch: ',f16.8)") xhi_patch
+                    write(0,"('Boundary velocity error south: ',e16.1)") max_bnd_val / 100
                     call exit(4)
                 endif
 
@@ -303,9 +321,20 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
         select case(mthbc(4))
             case(0) ! User defined boundary condition
                 ! only check cells that are not ghost cells
-                max_bnd_val = maxval(abs(val(3, 1+nghost:nrow-nghost, jbeg - 1)))
+                nxl = max(int((xlower + hxmarg - xlo_patch) / hx), 0)
+                nxr = max(int((xhi_patch - xupper + hxmarg) / hx), 0)
+                write(0,"('nxl: ',i10)") nxl
+                write(0,"('nxr: ',i10)") nxr
+                write(0,"('jgeg: ',i10)") jbeg
+                write(0,"('sizevalx: ',i10)") size(val, 2)
+                write(0,"('sizevaly: ',i10)") size(val, 3)
+                write(0,"('ylo_patch: ',f16.8)") ylo_patch
+                write(0,"('xlo_patch: ',f16.8)") xlo_patch
+                write(0,"('yhi_patch: ',f16.8)") yhi_patch
+                write(0,"('xhi_patch: ',f16.8)") xhi_patch
+                max_bnd_val = maxval(abs(val(3, 1+nxl:nrow-nxr, jbeg - 1)))
                 if (max_bnd_val > mom_norm_thresh) then
-                    write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
+                    write(0,"('Boundary velocity error north: ',f16.1)") max_bnd_val
                     call exit(5)
                 endif
                 do j = jbeg, ncol
