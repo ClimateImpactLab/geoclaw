@@ -116,6 +116,13 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
         return
     end if
 
+    ! Another case occurs when this grid covers only ghost cells (seems to happen only
+    ! when domain is periodic). In this case, we don't need to set anything and, if we
+    ! try, the array indexing will be out of bounds.
+    if (xlo_patch == xupper .or. xhi_patch == xlower .or. ylo_patch == yupper .or. yhi_patch == ylower) then
+        return
+    end if
+
     ! Each check has an initial check to ensure that the boundary is a real
     ! boundary condition and otherwise skips the code.  Otherwise 
     !-------------------------------------------------------
@@ -128,9 +135,11 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
         select case(mthbc(1))
             case(0) ! User defined boundary condition
                 ! only check cells that are not ghost cells
-                max_bnd_val = maxval(abs(val(2, nxl+1, 1+nghost:ncol-nghost)))
+                nyb = max(int((ylower + hymarg - ylo_patch) / hy), 0)
+                nyt = max(int((yhi_patch - yupper + hymarg) / hy), 0)
+                max_bnd_val = maxval(abs(val(2, nxl+1, nyb+1:ncol-nyt)))
                 if (max_bnd_val > mom_norm_thresh) then
-                    write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
+                    write(0,"('Boundary velocity error west: ',f16.1)") max_bnd_val
                     call exit(2)
                 endif
                 do j = 1, ncol
@@ -186,9 +195,11 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
         select case(mthbc(2))
             case(0) ! User defined boundary condition
                 ! only check cells that are not ghost cells
-                max_bnd_val = maxval(abs(val(2, ibeg - 1, 1+nghost:ncol-nghost)))
+                nyb = max(int((ylower + hymarg - ylo_patch) / hy), 0)
+                nyt = max(int((yhi_patch - yupper + hymarg) / hy), 0)
+                max_bnd_val = maxval(abs(val(2, ibeg - 1, 1+nyb:ncol-nyt)))
                 if (max_bnd_val > mom_norm_thresh) then
-                    write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
+                    write(0,"('Boundary velocity error east: ',f16.1)") max_bnd_val
                     call exit(3)
                 endif
                 do i = ibeg, nrow
@@ -243,9 +254,11 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
         select case(mthbc(3))
             case(0) ! User defined boundary condition
                 ! only check cells that are not ghost cells
-                max_bnd_val = maxval(abs(val(3, 1+nghost:nrow-nghost, nyb+1)))
+                nxl = max(int((xlower + hxmarg - xlo_patch) / hx), 0)
+                nxr = max(int((xhi_patch - xupper + hxmarg) / hx), 0)
+                max_bnd_val = maxval(abs(val(3, 1+nxl:nrow-nxr, nyb+1)))
                 if (max_bnd_val > mom_norm_thresh) then
-                    write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
+                    write(0,"('Boundary velocity error south: ',f16.1)") max_bnd_val
                     call exit(4)
                 endif
 
@@ -303,9 +316,11 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
         select case(mthbc(4))
             case(0) ! User defined boundary condition
                 ! only check cells that are not ghost cells
-                max_bnd_val = maxval(abs(val(3, 1+nghost:nrow-nghost, jbeg - 1)))
+                nxl = max(int((xlower + hxmarg - xlo_patch) / hx), 0)
+                nxr = max(int((xhi_patch - xupper + hxmarg) / hx), 0)
+                max_bnd_val = maxval(abs(val(3, 1+nxl:nrow-nxr, jbeg - 1)))
                 if (max_bnd_val > mom_norm_thresh) then
-                    write(0,"('Boundary velocity error: ',f16.8)") max_bnd_val
+                    write(0,"('Boundary velocity error north: ',f16.1)") max_bnd_val
                     call exit(5)
                 endif
                 do j = jbeg, ncol
