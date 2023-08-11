@@ -42,13 +42,12 @@ import sys
 import warnings
 from pathlib import Path
 
+import clawpack.geoclaw.units as units
 import numpy
 import pandas as pd
 import xarray as xr
 from fsspec import FSMap
 from six.moves import range
-
-import clawpack.geoclaw.units as units
 
 # =============================================================================
 #  Common acronyms across formats
@@ -558,7 +557,7 @@ class Storm(object):
         self.max_wind_radius = numpy.empty(num_lines)
         self.storm_radius = numpy.empty(num_lines)
 
-        for (i, line) in enumerate(data_block):
+        for i, line in enumerate(data_block):
             if len(line) == 0:
                 break
             data = [value.strip() for value in line.split(",")]
@@ -672,7 +671,6 @@ class Storm(object):
             raise ValueError("Cannot specify both *sid* and *storm_name* or *year*.")
 
         with xr.open_dataset(path) as ds:
-
             # match on sid
             if sid is not None:
                 match = ds.sid == sid.encode()
@@ -869,7 +867,6 @@ class Storm(object):
 
         engine, backend_kwargs = _set_engine_kwargs(path)
         with xr.open_dataset(path, engine=engine, backend_kwargs=backend_kwargs) as ds:
-
             # match on sid
             ds = ds.sel(storm=ds.sid == sid).squeeze()
 
@@ -1113,7 +1110,7 @@ class Storm(object):
         self.central_pressure = numpy.empty(num_lines)
         self.max_wind_radius = numpy.empty(num_lines)
         self.storm_radius = numpy.empty(num_lines)
-        for (i, line) in enumerate(data_block):
+        for i, line in enumerate(data_block):
             if len(line) == 0:
                 break
             data = [value.strip() for value in line.split()]
@@ -1194,7 +1191,7 @@ class Storm(object):
         self.max_wind_radius = numpy.empty(num_lines)
         self.storm_radius = numpy.empty(num_lines)
 
-        for (i, data) in enumerate(data_block):
+        for i, data in enumerate(data_block):
             # End at an empty lines - skips lines at the bottom of a file
             if len(data) == 0:
                 break
@@ -1419,7 +1416,6 @@ class Storm(object):
             with open(path, "w") as data_file:
                 data_file.write("%s %s %s" % ("Date", "Hurricane Name", "Indicator"))
                 for n in range(self.t.shape[0]):
-
                     latitude = float(self.eye_location[n, 0])
                     longitude = float(self.eye_location[n, 1])
 
@@ -1539,125 +1535,6 @@ class Storm(object):
 
     # =========================================================================
     # Other Useful Routines
-    def plot(
-        self,
-        axes=None,
-        intensity=False,
-        limits=None,
-        track_color="red",
-        category_color=None,
-        categorization="NHC",
-        plot_package=None,
-    ):
-        r"""Plot the track and optionally the intensity of the storm
-
-        Easily plot the track and intensity of a storm using a mapping package.
-
-        :Input:
-         - *axes* (matplotlib.pyplot.axes) Axes to plot into.  Default is *None*
-         - *intensity* (bool) Plot the intensity of storm along the track.
-           Defaults to *False*.
-         - *limits* (list) Limits of the plot specified.  Defaults to either
-           using the plotting package's default or the max and min of the
-           longitude and latitude of the storm track.
-         - *track_color* (str) String or specification of plotting color to use
-           for the track if *intensity* is not being plotted.
-         - *category_color* (dict) Dictionary containing mapping between
-           category numerical value and colors.  Defaults to [0, 5] -> ['red',
-           'yellow', 'orange', 'green', 'blue', 'gray']
-         - *categorization* (str) Type of categorization, defaults to *"NHC"*
-         - *plot_package* (str) Package that will do the plotting.  Available
-           packages include 'cartopy', 'basemap' and 'basic'.  Checks to see
-           what packages are available if None is given.
-
-        :Output:
-         - (matplotlib.pyplot.axes) Axes object that was plotted into.
-        """
-
-        import matplotlib.pyplot as plt
-
-        # No package given, check for what is available
-        if plot_package is None:
-            # Check for cartopy
-            try:
-                import cartopy
-
-                plot_package = "cartopy"
-            except ImportError as e:
-                # Check for basemap
-                try:
-                    from mpl_toolkits.basemap import Basemap
-
-                    plot_package = "basemap"
-                except ImportError as e:
-                    plot_package = "basic"
-                else:
-                    warnings.warn(
-                        "The package basemap has been EoF and is"
-                        + "not available in Python 3.x."
-                    )
-
-        # Create axes if not given
-        if axes is None:
-            fig = plt.figure()
-            axes = fig.add_subplot(1, 1, 1)
-
-        # Set limits to the plot
-        if limits is not None:
-            warnings.warn("Limits to the storm track plot are not implemented.")
-
-        # Create category dictionary mapping
-        if category_color is None:
-            category_color = {
-                5: "red",
-                4: "yellow",
-                3: "orange",
-                2: "green",
-                1: "blue",
-                0: "gray",
-            }
-        category = self.category(categorization=categorization)
-
-        # Cartopy plotting
-        if plot_package.lower() is "cartopy":
-            raise NotImplementedError("Cartopy plotting not yet implemented.")
-
-        # Basemap plotting
-        elif plot_package.lower() is "basemap":
-            mapping = Basemap()
-            longitude, latitude = mapping(
-                self.eye_location[:, 0], self.eye_location[:, 1]
-            )
-            for i in range(len(longitude)):
-                if intensity:
-                    color = category_color[category[i]]
-                else:
-                    color = track_color
-                mapping.plot(longitude[i : i + 2], latitude[i : i + 2], color=color)
-
-            mapping.drawcoastlines()
-            mapping.drawcountries()
-            mapping.fillcontinents()
-
-        # Basic plotting :-(
-        else:
-            longitude = self.eye_location[:, 0]
-            latitude = self.eye_location[:, 1]
-            for i in range(len(longitude)):
-                if intensity:
-                    color = category_color[category[i]]
-                else:
-                    color = track_color
-                axes.plot(longitude[i : i + 2], latitude[i : i + 2], color=color)
-
-            axes.set_xlabel("Longitude")
-            axes.set_ylabel("Latitude")
-
-        # TODO: Add colorbar for category color
-        if intensity:
-            pass
-
-        return axes
 
     def category(self, categorization="NHC", cat_names=False):
         r"""Categorizes storm based on relevant storm data
@@ -1753,7 +1630,7 @@ class Storm(object):
 
         if cat_names:
             category_name = []
-            for (i, cat) in enumerate(category):
+            for i, cat in enumerate(category):
                 category_name.append(cat_map[cat])
 
             return category, category_name
@@ -1879,7 +1756,6 @@ def fill_rad_w_other_source(t, storm_targ, storm_fill, var, interp_kwargs={}):
 
     # if not all missing, try using storm_fill to fill
     if fill_da.notnull().any():
-
         # remove duplicates
         fill_da = fill_da.groupby("t").first()
 
@@ -1915,7 +1791,7 @@ def fill_rad_w_other_source(t, storm_targ, storm_fill, var, interp_kwargs={}):
 def available_formats():
     r"""Construct a string suitable for listing available storm file formats."""
     output = "Available Formats: (Function, Name, Citation)\n"
-    for (model, values) in Storm._supported_formats.items():
+    for model, values in Storm._supported_formats.items():
         output = "".join((output, "%s: %s %s\n" % (values[0], model, values[1])))
     return output
 
@@ -1923,7 +1799,7 @@ def available_formats():
 def available_models():
     r"""Construct a string suitable for listing available storm models."""
     output = "Function, Name, Citation\n"
-    for (model, values) in _supported_models.items():
+    for model, values in _supported_models.items():
         output = "".join((output, "%s: %s %s\n" % (values[0], model, values[1])))
     return output
 
@@ -1993,7 +1869,6 @@ def _set_engine_kwargs(path):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser()
 
     # Positional argument
