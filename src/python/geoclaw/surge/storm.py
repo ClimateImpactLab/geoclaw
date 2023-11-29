@@ -33,8 +33,6 @@ workflow in a `setrun.py` file would do the following:
     - tcvitals (reading only)
 """
 
-from __future__ import absolute_import, print_function
-
 import argparse
 import datetime
 import os
