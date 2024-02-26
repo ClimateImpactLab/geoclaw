@@ -40,12 +40,13 @@ import sys
 import warnings
 from pathlib import Path
 
-import clawpack.geoclaw.units as units
 import numpy
 import pandas as pd
 import xarray as xr
 from fsspec import FSMap
 from six.moves import range
+
+import clawpack.geoclaw.units as units
 
 # =============================================================================
 #  Common acronyms across formats
@@ -1669,7 +1670,7 @@ def construct_fields(storm, r, t, model="holland_1980"):
     if model.lower() not in _supported_models.keys():
         raise ValueError("Model %s not available." % model)
 
-    return getattr(sys.modules[__name__], model.lower())(storm, x, t)
+    return getattr(sys.modules[__name__], model.lower())(storm, r, t)
 
 
 # Specific implementations
