@@ -685,7 +685,7 @@ class Storm(object):
             ds = ds.sel(storm=match).squeeze()
 
             # occurs if we have 0 or >1 matching storms
-            if "storm" in ds.dims.keys():
+            if "storm" in ds.dims:
                 if ds.storm.shape[0] == 0:
                     raise ValueError("Storm/year not found in provided file")
                 else:
@@ -700,7 +700,7 @@ class Storm(object):
                     # find storm with start date closest to provided
                     storm_ix = abs(start_times - start_date).argmin()
                     ds = ds.isel(storm=storm_ix).squeeze()
-                    assert "storm" not in ds.dims.keys()
+                    assert "storm" not in ds.dims
 
             # cut down dataset to only non-null times
             valid_t = ds.time.notnull()
@@ -870,7 +870,7 @@ class Storm(object):
             ds = ds.sel(storm=ds.sid == sid).squeeze()
 
             # occurs if we have 0 or >1 matching storms
-            if "storm" in ds.dims.keys():
+            if "storm" in ds.dims:
                 if ds.storm.shape[0] == 0:
                     raise ValueError("SID not found in provided file")
                 else:
@@ -885,7 +885,7 @@ class Storm(object):
                     # find storm with start date closest to provided
                     storm_ix = abs(start_times - start_date).argmin()
                     ds = ds.isel(storm=storm_ix).squeeze()
-                    assert "storm" not in ds.dims.keys()
+                    assert "storm" not in ds.dims
 
             # cut down dataset to only non-null times
             valid_t = ds.time.notnull()
