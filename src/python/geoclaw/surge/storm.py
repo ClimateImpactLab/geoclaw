@@ -936,8 +936,8 @@ class Storm(object):
             landfalls = (ds.dist2land <= 0) & (ds.dist2land.shift(time=1) > 0)
 
             for i in range(landfalls.sum().item()):
-                ix = landfalls.argmax().item()
-                self.event[landfalls.argmax().item()] = "L"
+                ix = landfalls.argmax("time").item()
+                self.event[ix] = "L"
                 landfalls[ix] = False
 
             ## time offset
