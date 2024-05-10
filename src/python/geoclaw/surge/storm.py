@@ -887,20 +887,17 @@ class Storm(object):
                     ds = ds.isel(storm=storm_ix).squeeze()
                     assert "storm" not in ds.dims
 
-            # cut down dataset to only non-null times
-            valid_t = ds.time.notnull()
-            if valid_t.sum() == 0:
-                raise ValueError("No valid wind speeds found for this storm.")
-            ds = ds.sel(time=valid_t)
-
-            # THESE CANNOT BE MISSING SO DROP IF EITHER MISSING
-            valid = ds["v_total"].notnull() & ds["pstore"].notnull()
-            if not valid.any():
+            # cut down dataset to only non-null times, where you have both velocity
+            # and pressure measurements. If only 1 of these points, you still cannot
+            # simulate the storm as you can't calculate and add translational V
+            valid_t = ds.time.notnull() & ds.v_total.notnull() & ds.pstore.notnull()
+            if valid_t.sum() < 2:
                 raise NoDataError(missing_necessary_data_warning_str)
-            ds = ds.sel(time=valid)
+            ds = ds.sel(time=valid_t)
 
             # fill in RMW
             ds["rmstore"] = ds.rmstore.fillna(ds.rmstore_estimated)
+            ds["storm_radius"] = ds.storm_radius.fillna(ds.storm_radius_estimated)
 
             # CONVERT TO GEOCLAW FORMAT
 
