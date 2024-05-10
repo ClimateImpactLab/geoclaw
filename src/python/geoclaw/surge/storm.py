@@ -867,7 +867,7 @@ class Storm(object):
         engine, backend_kwargs = _set_engine_kwargs(path)
         with xr.open_dataset(path, engine=engine, backend_kwargs=backend_kwargs) as ds:
             # match on sid
-            ds = ds.sel(storm=ds.sid == sid).squeeze()
+            ds = ds.sel(storm=ds.sid == sid).load().squeeze()
 
             # occurs if we have 0 or >1 matching storms
             if "storm" in ds.dims:
@@ -893,8 +893,7 @@ class Storm(object):
                 raise ValueError("No valid wind speeds found for this storm.")
             ds = ds.sel(time=valid_t)
 
-            ## THESE CANNOT BE MISSING SO DROP
-            ## IF EITHER MISSING
+            # THESE CANNOT BE MISSING SO DROP IF EITHER MISSING
             valid = ds["v_total"].notnull() & ds["pstore"].notnull()
             if not valid.any():
                 raise NoDataError(missing_necessary_data_warning_str)
@@ -903,7 +902,7 @@ class Storm(object):
             # fill in RMW
             ds["rmstore"] = ds.rmstore.fillna(ds.rmstore_estimated)
 
-            ## CONVERT TO GEOCLAW FORMAT
+            # CONVERT TO GEOCLAW FORMAT
 
             # assign basin to be the basin where track originates
             # in case track moves across basins
@@ -931,7 +930,7 @@ class Storm(object):
                     )
                 )
 
-            ## set landfall events
+            # set landfall events
             self.event = numpy.array([""] * len(ds.datetime))
             landfalls = (ds.dist2land <= 0) & (ds.dist2land.shift(time=1) > 0)
 
@@ -940,7 +939,7 @@ class Storm(object):
                 self.event[ix] = "L"
                 landfalls[ix] = False
 
-            ## time offset
+            # time offset
             if (self.event == "L").any():
                 # if landfall, use last landfall
                 self.time_offset = numpy.array(self.t)[self.event == "L"][-1]
