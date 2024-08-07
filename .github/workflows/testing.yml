@@ -40,7 +40,12 @@ jobs:
     - name: Setup geoclaw
       run: |
         cd geoclaw
-        git checkout ${{ github.ref }}
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+           git fetch origin pull/${{ github.event.pull_request.number }}/merge:PR
+           git checkout PR
+         else
+           git checkout ${{ github.ref_name }}
+         fi
     - name: Lint with flake8
       run: |
         cd geoclaw
