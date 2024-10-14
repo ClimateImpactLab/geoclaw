@@ -11,18 +11,21 @@ Plotting routines for storm surge simulations with GeoClaw
 #                     http://www.opensource.org/licenses/
 # ==============================================================================
 
-from __future__ import absolute_import
-from __future__ import print_function
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.colors as colors
-import matplotlib.lines as mlines
-import pandas
+from __future__ import absolute_import, print_function
 
+import warnings
+
+import clawpack.geoclaw.data as geodata
 import clawpack.visclaw.colormaps as colormaps
 import clawpack.visclaw.gaugetools as gaugetools
 import clawpack.visclaw.geoplot as geoplot
-import clawpack.geoclaw.data as geodata
+import matplotlib.colors as colors
+import matplotlib.lines as mlines
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas
+
+# import clawpack.geoclaw.surge.storm
 
 # TODO:  Assign these based on data files
 bathy_index = 0
@@ -31,17 +34,20 @@ wind_field = 4
 pressure_field = 6
 
 surface_cmap = plt.get_cmap("bwr")
-speed_cmap = plt.get_cmap('PuBu')
-friction_cmap = plt.get_cmap('YlOrRd')
-velocity_cmap = plt.get_cmap('PiYG')
-vorticity_cmap = plt.get_cmap('PRGn')
-wind_cmap = plt.get_cmap('PuBu')
-pressure_cmap = plt.get_cmap('PuBu')
+speed_cmap = plt.get_cmap("PuBu")
+friction_cmap = plt.get_cmap("YlOrRd")
+velocity_cmap = plt.get_cmap("PiYG")
+vorticity_cmap = plt.get_cmap("PRGn")
+wind_cmap = plt.get_cmap("PuBu")
+pressure_cmap = plt.get_cmap("PuBu")
 land_cmap = geoplot.land_colors
 
 surge_data = geodata.SurgeData()
 
 
+# ==============================
+#  Track Plotting Functionality
+# ==============================
 class track_data(object):
     """Read in storm track data from run output"""
 
@@ -68,8 +74,9 @@ class track_data(object):
 
             # Check to make sure that this fixed the problem
             if self._data.shape[0] < frame + 1:
-                print(" *** WARNING *** Could not find track data for ",
-                      "frame %s." % frame)
+                warnings.warn(
+                    f" *** WARNING *** Could not find track data", " for frame {frame}."
+                )
                 return None, None, None
 
         return self._data[frame, 1:]
@@ -78,26 +85,33 @@ class track_data(object):
 # ==========================================================================
 # Gauge functions
 # ==========================================================================
-def gauge_locations(current_data, gaugenos='all'):
-    gaugetools.plot_gauge_locations(current_data.plotdata,
-                                    gaugenos=gaugenos, format_string='kx',
-                                    add_labels=True, xoffset=0.02,
-                                    yoffset=0.02)
+def gauge_locations(current_data, gaugenos="all"):
+    gaugetools.plot_gauge_locations(
+        current_data.plotdata,
+        gaugenos=gaugenos,
+        format_string="kx",
+        add_labels=True,
+        xoffset=0.02,
+        yoffset=0.02,
+    )
 
 
 def gauge_dry_regions(cd, dry_tolerance=1e-16):
     """Masked array of zeros where gauge is dry."""
-    return np.ma.masked_where(np.abs(cd.gaugesoln.q[0, :]) > dry_tolerance,
-                              np.zeros(cd.gaugesoln.q[0, :].shape))
+    return np.ma.masked_where(
+        np.abs(cd.gaugesoln.q[0, :]) > dry_tolerance,
+        np.zeros(cd.gaugesoln.q[0, :].shape),
+    )
 
 
 def gauge_surface(cd, dry_tolerance=1e-16):
     """Sea surface at gauge masked when dry."""
-    return np.ma.masked_where(np.abs(cd.gaugesoln.q[0, :]) < dry_tolerance,
-                              cd.gaugesoln.q[3, :])
+    return np.ma.masked_where(
+        np.abs(cd.gaugesoln.q[0, :]) < dry_tolerance, cd.gaugesoln.q[3, :]
+    )
 
 
-def plot_landfall_gauge(gauge, axes, landfall=0.0, style='b', kwargs={}):
+def plot_landfall_gauge(gauge, axes, landfall=0.0, style="b", kwargs={}):
     """Plot gauge data on the axes provided
 
     This will transform the plot so that it is relative to the landfall value
@@ -122,11 +136,12 @@ def days_figure_title(current_data, land_fall=0.0):
     hours = (t - int(t)) * 24.0
 
     title = current_data.plotaxes.title
-    plt.title('%s at day %3i, hour %2.1f' % (title, days, hours))
+    plt.title("%s at day %3i, hour %2.1f" % (title, days, hours))
 
 
-def surge_afteraxes(current_data, track, land_fall=0.0, plot_direction=False,
-                    style='ro', kwargs={}):
+def surge_afteraxes(
+    current_data, track, land_fall=0.0, plot_direction=False, style="ro", kwargs={}
+):
     """Default surge plotting after axes function
 
     Includes changing the title to something relative to landfall and plotting
@@ -138,8 +153,12 @@ def surge_afteraxes(current_data, track, land_fall=0.0, plot_direction=False,
         axes = plt.gca()
         axes.plot(track_data[0], track_data[1], style, **kwargs)
         if plot_direction:
-            axes.quiver(track_data[0], track_data[1],
-                        np.cos(track_data[2]), np.sin(track_data[2]))
+            axes.quiver(
+                track_data[0],
+                track_data[1],
+                np.cos(track_data[2]),
+                np.sin(track_data[2]),
+            )
     days_figure_title(current_data, land_fall)
 
 
@@ -154,19 +173,26 @@ def wind_x(cd):
 
 def wind_y(cd):
     # print(cd.aux[wind_field+1, :, :])
-    return cd.aux[wind_field+1, :, :]
+    return cd.aux[wind_field + 1, :, :]
 
 
 def wind_speed(cd):
-    return np.sqrt(wind_x(cd)**2 + wind_y(cd)**2)
+    return np.sqrt(wind_x(cd) ** 2 + wind_y(cd) ** 2)
 
 
 def pressure(cd):
     # The division by 100.0 is to convert from Pa to millibars
     return cd.aux[pressure_field, :, :] / 100.0
 
-# def category(Storm, cd):
-#     return cd.aux[Storm.category, :, :]
+
+def storm_radius(cd, track):
+    """Distance from center of storm"""
+    track_data = track.get_track(cd.frameno)
+
+    if track_data[0] is not None and track_data[1] is not None:
+        return np.sqrt((cd.x - track_data[0]) ** 2 + (cd.y - track_data[1]) ** 2)
+    else:
+        return None
 
 
 # ========================================================================
@@ -205,23 +231,24 @@ def water_speed(current_data):
     u = water_u(current_data)
     v = water_v(current_data)
 
-    return np.sqrt(u**2+v**2)
+    return np.sqrt(u**2 + v**2)
 
 
 # ========================================================================
 #  Plot items
 # ========================================================================
-def add_surface_elevation(plotaxes, plot_type='pcolor', bounds=None,
-                          contours=None, shrink=1.0):
+def add_surface_elevation(
+    plotaxes, plot_type="pcolor", bounds=None, contours=None, shrink=1.0
+):
     """Add plotitem representing the sea surface."""
 
-    if plot_type == 'pcolor' or plot_type == 'imshow':
-        plotitem = plotaxes.new_plotitem(name='surface', plot_type='2d_pcolor')
+    if plot_type == "pcolor" or plot_type == "imshow":
+        plotitem = plotaxes.new_plotitem(name="surface", plot_type="2d_pcolor")
         plotitem.plot_var = geoplot.surface_or_depth
 
         if bounds is not None:
             if bounds[0] == 0.0:
-                plotitem.pcolor_cmap = plt.get_cmap('OrRd')
+                plotitem.pcolor_cmap = plt.get_cmap("OrRd")
             else:
                 plotitem.pcolor_cmap = surface_cmap
             plotitem.pcolor_cmin = bounds[0]
@@ -232,9 +259,8 @@ def add_surface_elevation(plotaxes, plot_type='pcolor', bounds=None,
         plotitem.amr_celledges_show = [0] * 10
         plotitem.amr_patchedges_show = [1, 1, 1, 0, 0, 0, 0]
 
-    elif plot_type == 'contour':
-        plotitem = plotaxes.new_plotitem(name='surface',
-                                         plot_type='2d_contour')
+    elif plot_type == "contour":
+        plotitem = plotaxes.new_plotitem(name="surface", plot_type="2d_contour")
         if bounds is None:
             plotitem.contour_levels = [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5]
 
@@ -242,11 +268,10 @@ def add_surface_elevation(plotaxes, plot_type='pcolor', bounds=None,
         plotitem.amr_contour_show = [1] * 10
         plotitem.amr_celledges_show = [0] * 10
         plotitem.amr_patchedges_show = [1, 1, 1, 1, 0, 0, 0]
-        plotitem.amr_contour_colors = 'k'
+        plotitem.amr_contour_colors = "k"
 
-    elif plot_type == 'contourf':
-        plotitem = plotaxes.new_plotitem(name='surface',
-                                         plot_type='2d_contourf')
+    elif plot_type == "contourf":
+        plotitem = plotaxes.new_plotitem(name="surface", plot_type="2d_contourf")
         plotitem.plot_var = geoplot.surface_or_depth
         if bounds is not None:
             contours = numpy.linspace(bounds[0], bounds[1], 11)
@@ -262,21 +287,20 @@ def add_surface_elevation(plotaxes, plot_type='pcolor', bounds=None,
         plotitem.fill_cmap = geoplot.tsunami_colormap
         plotitem.colorbar_shrink = shrink
         plotitem.colorbar_label = "Surface Height (m)"
-        plotitem.fill_cmap = plt.get_cmap('OrRd')
+        plotitem.fill_cmap = plt.get_cmap("OrRd")
         if any((value < 0 for value in plotitem.contour_levels)):
             plotitem.fill_cmap = surface_cmap
 
         plotitem.amr_contour_show = [1] * 10
         plotitem.amr_celledges_show = [0] * 10
         plotitem.amr_patchedges_show = [1, 1, 1, 1, 0, 0, 0]
-        plotitem.amr_contour_colors = 'k'
+        plotitem.amr_contour_colors = "k"
 
 
-def add_speed(plotaxes, plot_type='pcolor', bounds=None,  contours=None,
-              shrink=1.0):
+def add_speed(plotaxes, plot_type="pcolor", bounds=None, contours=None, shrink=1.0):
     """Add plotitem representing speed of the water."""
-    if plot_type == 'pcolor' or plot_type == 'imshow':
-        plotitem = plotaxes.new_plotitem(name='speed', plot_type='2d_pcolor')
+    if plot_type == "pcolor" or plot_type == "imshow":
+        plotitem = plotaxes.new_plotitem(name="speed", plot_type="2d_pcolor")
         plotitem.plot_var = water_speed
         # plotitem.plot_var = 1
         plotitem.pcolor_cmap = speed_cmap
@@ -289,26 +313,25 @@ def add_speed(plotaxes, plot_type='pcolor', bounds=None,  contours=None,
         plotitem.amr_celledges_show = [0] * 10
         plotitem.amr_patchedges_show = [1, 1, 1, 0, 0, 0, 0]
 
-    elif plot_type == 'contour':
-        plotitem = plotaxes.new_plotitem(name='speed', plot_type='2d_contour')
+    elif plot_type == "contour":
+        plotitem = plotaxes.new_plotitem(name="speed", plot_type="2d_contour")
         if bounds is None:
             plotitem.contour_levels = [0.5, 1.5, 3, 4.5, 6.0]
-        plotitem.kwargs = {'linewidths': 1}
+        plotitem.kwargs = {"linewidths": 1}
 
         plotitem.plot_var = water_speed
         plotitem.amr_contour_show = [1] * 10
         plotitem.amr_celledges_show = [0] * 10
         plotitem.amr_patchedges_show = [1, 1, 1, 1, 1, 0, 0]
-        plotitem.amr_contour_colors = 'k'
+        plotitem.amr_contour_colors = "k"
 
-    elif plot_type == 'contourf':
-
-        plotitem = plotaxes.new_plotitem(name='speed', plot_type='2d_contourf')
+    elif plot_type == "contourf":
+        plotitem = plotaxes.new_plotitem(name="speed", plot_type="2d_contourf")
 
         plotitem.add_colorbar = True
         plotitem.colorbar_label = "Current (m/s)"
         plotitem.colorbar_shrink = shrink
-        plotitem.fill_cmap = plt.get_cmap('PuBu')
+        plotitem.fill_cmap = plt.get_cmap("PuBu")
         if bounds is not None:
             plotitem.contour_levels = numpy.linspace(bounds[0], bounds[1], 11)
             plotitem.fill_cmin = bounds[0]
@@ -320,21 +343,20 @@ def add_speed(plotaxes, plot_type='pcolor', bounds=None,  contours=None,
 
         # Modify the 'extends' plot attribute as we don't want this to extend
         # below 0
-        plotitem.kwargs['extend'] = 'max'
+        plotitem.kwargs["extend"] = "max"
 
         plotitem.plot_var = water_speed
         plotitem.amr_contour_show = [1] * 10
         plotitem.amr_celledges_show = [0] * 10
         plotitem.amr_patchedges_show = [1, 1, 1, 1, 1, 0, 0]
-        plotitem.amr_contour_colors = 'k'
+        plotitem.amr_contour_colors = "k"
 
 
-def add_friction(plotaxes, bounds=None, plot_type='pcolor', shrink=1.0):
+def add_friction(plotaxes, bounds=None, plot_type="pcolor", shrink=1.0):
     """Add plotitem for the friction field"""
 
-    if plot_type == 'pcolor' or plot_type == 'imshow':
-        plotitem = plotaxes.new_plotitem(name='friction',
-                                         plot_type='2d_pcolor')
+    if plot_type == "pcolor" or plot_type == "imshow":
+        plotitem = plotaxes.new_plotitem(name="friction", plot_type="2d_pcolor")
         plotitem.plot_var = friction
         plotitem.pcolor_cmap = friction_cmap
         plotitem.colorbar_shrink = shrink
@@ -348,11 +370,11 @@ def add_friction(plotaxes, bounds=None, plot_type='pcolor', shrink=1.0):
         plotitem.amr_patchedges_show = [0] * 10
 
 
-def add_wind(plotaxes, bounds=None, plot_type='pcolor', shrink=1.0):
+def add_wind(plotaxes, bounds=None, plot_type="pcolor", shrink=1.0):
     """Add plotitem for the wind speed."""
 
-    if plot_type == 'pcolor' or plot_type == 'imshow':
-        plotitem = plotaxes.new_plotitem(name='wind', plot_type='2d_pcolor')
+    if plot_type == "pcolor" or plot_type == "imshow":
+        plotitem = plotaxes.new_plotitem(name="wind", plot_type="2d_pcolor")
         plotitem.plot_var = wind_speed
         plotitem.pcolor_cmap = wind_cmap
         if bounds is not None:
@@ -364,20 +386,19 @@ def add_wind(plotaxes, bounds=None, plot_type='pcolor', shrink=1.0):
         plotitem.amr_celledges_show = [0] * 10
         plotitem.amr_patchedges_show = [1, 1, 1, 1, 1, 0, 0]
 
-    elif plot_type == 'contour':
-        plotitem = plotaxes.new_plotitem(name='wind', plot_type='2d_contour')
+    elif plot_type == "contour":
+        plotitem = plotaxes.new_plotitem(name="wind", plot_type="2d_contour")
         plotitem.plot_var = wind_speed
         plotitem.contour_nlevels = len(surge_data.wind_refine)
         plotitem.countour_min = surge_data.wind_refine[0]
         plotitem.patchedges_show = 1
 
 
-def add_pressure(plotaxes, bounds=None, plot_type='pcolor', shrink=1.0):
+def add_pressure(plotaxes, bounds=None, plot_type="pcolor", shrink=1.0):
     """Add plotitem for the pressure field."""
 
-    if plot_type == 'pcolor' or plot_type == 'imshow':
-        plotitem = plotaxes.new_plotitem(name="pressure",
-                                         plot_type='2d_pcolor')
+    if plot_type == "pcolor" or plot_type == "imshow":
+        plotitem = plotaxes.new_plotitem(name="pressure", plot_type="2d_pcolor")
         plotitem.plot_var = pressure
         plotitem.colorbar_shrink = shrink
         plotitem.pcolor_cmap = pressure_cmap
@@ -389,15 +410,15 @@ def add_pressure(plotaxes, bounds=None, plot_type='pcolor', shrink=1.0):
         plotitem.colorbar_label = "Pressure (mbar)"
         plotitem.amr_celledges_show = [0] * 10
         plotitem.amr_patchedges_show = [1, 1, 1, 1, 1, 0, 0]
-    elif plot_type == 'contour':
+    elif plot_type == "contour":
         pass
 
 
-def add_land(plotaxes, plot_type='pcolor', bounds=None):
+def add_land(plotaxes, plot_type="pcolor", bounds=None):
     """Add plotitem for land"""
 
-    if plot_type == 'pcolor':
-        plotitem = plotaxes.new_plotitem(name='land', plot_type='2d_pcolor')
+    if plot_type == "pcolor":
+        plotitem = plotaxes.new_plotitem(name="land", plot_type="2d_pcolor")
         plotitem.show = True
         plotitem.plot_var = geoplot.land
         plotitem.pcolor_cmap = land_cmap
@@ -408,31 +429,39 @@ def add_land(plotaxes, plot_type='pcolor', bounds=None):
         plotitem.amr_celledges_show = [0] * 10
         plotitem.amr_patchedges_show = [1, 1, 1, 1, 1, 0, 0]
 
-    elif plot_type == 'contour':
-        plotitem = plotaxes.new_plotitem(name="land", plot_type='2d_contour')
+    elif plot_type == "contour":
+        plotitem = plotaxes.new_plotitem(name="land", plot_type="2d_contour")
         plotitem.plot_var = geoplot.land
         plotitem.contour_nlevels = 40
         plotitem.contour_min = bounds[0]
         plotitem.contour_max = bounds[1]
-        plotitem.amr_contour_colors = ['g']  # color on each level
-        plotitem.amr_patch_bgcolor = ['#ffeeee', '#eeeeff', '#eeffee']
+        plotitem.amr_contour_colors = ["g"]  # color on each level
+        plotitem.amr_patch_bgcolor = ["#ffeeee", "#eeeeff", "#eeffee"]
         plotitem.celledges_show = 0
         plotitem.patchedges_show = 0
 
 
-def add_bathy_contours(plotaxes, contour_levels=None, color='k'):
+def add_bathy_contours(plotaxes, contour_levels=None, color="k"):
     """Add plotitem to plot contours of the topography"""
 
-    plotitem = plotaxes.new_plotitem(name='bathy', plot_type='2d_contour')
+    plotitem = plotaxes.new_plotitem(name="bathy", plot_type="2d_contour")
     plotitem.plot_var = geoplot.topo
     if contour_levels is None:
         contour_levels = [0.0]
     plotitem.contour_levels = contour_levels
     plotitem.amr_contour_colors = [color]
-    plotitem.kwargs = {'linestyles': 'solid', 'linewidths': 2}
+    plotitem.kwargs = {"linestyles": "solid", "linewidths": 2}
     plotitem.amr_contour_show = [1] * 10
     plotitem.celledges_show = 0
     plotitem.patchedges_show = 0
+
+
+def add_storm_radii(plotaxes, track, radii=[100e3], color="r"):
+    """Add radii to plots based on storm position"""
+    plotitem = plotaxes.new_plotitem(name="storm radius", plot_type="2d_contour")
+    plotitem.plot_var = lambda cd: storm_radius(cd, track)
+    plotitem.contour_levels = radii
+    plotitem.contour_colors = color
 
 
 # ===== Storm related plotting =======
@@ -449,15 +478,15 @@ def plot_track(t, x, y, wind_radius, wind_speed, Pc, name=None):
     else:
         name = " - %s" % name
 
-    colors = ['r', 'b']
+    colors = ["r", "b"]
     divide = (np.max(Pc) + np.min(Pc)) / 2.0
 
     fig = plt.figure(1)
     axes = fig.add_subplot(111)
     indices = Pc < divide
-    axes.scatter(x[indices], y[indices], color='r', marker='o')
+    axes.scatter(x[indices], y[indices], color="r", marker="o")
     indices = Pc >= divide
-    axes.scatter(x[indices], y[indices], color='b', marker='o')
+    axes.scatter(x[indices], y[indices], color="b", marker="o")
     axes.set_title("Track%s" % name)
 
     fig = plt.figure(2, figsize=(24, 6))
@@ -471,7 +500,7 @@ def plot_track(t, x, y, wind_radius, wind_speed, Pc, name=None):
 
     axes = fig.add_subplot(133)
     axes.plot(sec2days(t), Pc)
-    axes.plot(sec2days(t), np.ones(t.shape) * divide, 'k--')
+    axes.plot(sec2days(t), np.ones(t.shape) * divide, "k--")
     axes.set_title("Central Pressure%s" % name)
 
 
@@ -502,17 +531,27 @@ Easily plot the track and intensity of a storm using a mapping package.
 # ========================================================================
 
 
-def add_track(Storm, axes, plot_package=None, category_color=None, legend_loc='best',
-              intensity=False, categorization="NHC", limits=None, track_color='red'):
-
+def add_track(
+    Storm,
+    axes,
+    plot_package=None,
+    category_color=None,
+    legend_loc="best",
+    intensity=False,
+    categorization="NHC",
+    limits=None,
+    track_color="red",
+):
     if category_color is None:
-        category_color = {5: 'red',
-                          4: 'orange',
-                          3: 'yellow',
-                          2: 'blue',  # edit color
-                          1: 'violet',
-                          0: 'black',
-                          -1: 'gray'}
+        category_color = {
+            5: "red",
+            4: "orange",
+            3: "yellow",
+            2: "blue",  # edit color
+            1: "violet",
+            0: "black",
+            -1: "gray",
+        }
     category = Storm.category(categorization=categorization)
 
     # make it if intensity = true
@@ -525,7 +564,7 @@ def add_track(Storm, axes, plot_package=None, category_color=None, legend_loc='b
             color = category_color[category[i]]
         else:
             color = track_color
-        axes.plot(longitude[i:i + 2], latitude[i:i + 2], color=color)
+        axes.plot(longitude[i : i + 2], latitude[i : i + 2], color=color)
 
     axes.set_xlabel("Longitude")
     axes.set_ylabel("Latitude")
@@ -536,39 +575,56 @@ def add_track(Storm, axes, plot_package=None, category_color=None, legend_loc='b
         categories_legend = []
         # plotitem = plotaxes.new_plotitem(name='category', plot_type='1d_plot')
 
-        if (-1 in category):
+        if -1 in category:
             negativeone = mlines.Line2D(
-                [], [], color=category_color[-1], marker='s', ls='', label="Tropical Depression")
+                [],
+                [],
+                color=category_color[-1],
+                marker="s",
+                ls="",
+                label="Tropical Depression",
+            )
             categories_legend.append(negativeone)
 
-        if (0 in category):
+        if 0 in category:
             zero = mlines.Line2D(
-                [], [], color=category_color[0], marker='s', ls='', label="Tropical Storn")
+                [],
+                [],
+                color=category_color[0],
+                marker="s",
+                ls="",
+                label="Tropical Storn",
+            )
             categories_legend.append(zero)
 
-        if (1 in category):
-            one = mlines.Line2D([], [], color=category_color[1],
-                                marker='s', ls='', label="Category 1")
+        if 1 in category:
+            one = mlines.Line2D(
+                [], [], color=category_color[1], marker="s", ls="", label="Category 1"
+            )
             categories_legend.append(one)
 
-        if (2 in category):
-            two = mlines.Line2D([], [], color=category_color[2],
-                                marker='s', ls='', label="Category 2")
+        if 2 in category:
+            two = mlines.Line2D(
+                [], [], color=category_color[2], marker="s", ls="", label="Category 2"
+            )
             categories_legend.append(two)
 
-        if (3 in category):
+        if 3 in category:
             three = mlines.Line2D(
-                [], [], color=category_color[3], marker='s', ls='', label="Category 3")
+                [], [], color=category_color[3], marker="s", ls="", label="Category 3"
+            )
             categories_legend.append(three)
 
-        if (4 in category):
+        if 4 in category:
             four = mlines.Line2D(
-                [], [], color=category_color[4], marker='s', ls='', label="Category 4")
+                [], [], color=category_color[4], marker="s", ls="", label="Category 4"
+            )
             categories_legend.append(four)
 
-        if (5 in category):
+        if 5 in category:
             five = mlines.Line2D(
-                [], [], color=category_color[5], marker='s', ls='', label="Category 5")
+                [], [], color=category_color[5], marker="s", ls="", label="Category 5"
+            )
             categories_legend.append(five)
 
         plt.legend(handles=categories_legend, loc=legend_loc)
