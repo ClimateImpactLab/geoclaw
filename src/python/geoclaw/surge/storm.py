@@ -2241,18 +2241,6 @@ class DataDerivedStorms(object):
         ds.to_netcdf(filename + '.nc')
 
 
-
-
-
-
-
-
-
-
-
-if __name__ == '__main__':
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 

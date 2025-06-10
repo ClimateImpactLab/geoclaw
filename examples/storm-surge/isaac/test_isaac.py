@@ -48,7 +48,7 @@ class IsaacStormSurgeRun(test.GeoClawRegressionTest):
         self.file_format = file_format
 
     def setUp(self):
-
+        pass
 
     def runTest(self, save=False):
 
