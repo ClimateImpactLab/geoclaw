@@ -20,7 +20,7 @@ _plots/
 *.xyz
 scratch/*
 !scratch/README.txt
-
+*.nc
 # log files
 *.log
 
@@ -32,3 +32,5 @@ __pycache__
 
 # macOS
 *.DS_Store
+
+.vscode

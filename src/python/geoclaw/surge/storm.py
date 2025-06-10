@@ -31,20 +31,22 @@ workflow in a `setrun.py` file would do the following:
     - JMA (reading only)
     - IMD (planned)
     - tcvitals (reading only)
+    - HWRF (data-derived)
+    - OWI (data-derived)
 """
 
+import sys
+# import os
 import argparse
 import datetime
-import os
-import sys
 import warnings
 from pathlib import Path
 
-import clawpack.geoclaw.units as units
 import numpy as np
 import pandas as pd
-import xarray as xr
-from fsspec import FSMap
+
+import clawpack.geoclaw.units as units
+import clawpack.clawutil.data as clawdata
 
 # =============================================================================
 #  Common acronyms across formats
@@ -64,17 +66,15 @@ ATCF_basins = {
 
 # TCVitals basins with their expanded names
 # see http://www.emc.ncep.noaa.gov/HWRF/tcvitals-draft.html
-TCVitals_Basins = {
-    "L": "North Atlantic",
-    "E": "North East Pacific",
-    "C": "North Central Pacific",
-    "W": "North West Pacific",
-    "B": "Bay of Bengal (North Indian Ocean)",
-    "A": "Arabian Sea (North Indian Ocean)",
-    "Q": "South Atlantic",
-    "P": "South Pacific",
-    "S": "South Indian Ocean",
-}
+TCVitals_Basins = {"L": "North Atlantic",
+                   "E": "North East Pacific",
+                   "C": "North Central Pacific",
+                   "W": "North West Pacific",
+                   "B": "Bay of Bengal (North Indian Ocean)",
+                   "A": "Arabian Sea (North Indian Ocean)",
+                   "Q": "South Atlantic",
+                   "P": "South Pacific",
+                   "S": "South Indian Ocean"}
 
 # Tropical Cyclone Designations
 # see https://www.nrlmry.navy.mil/atcf_web/docs/database/new/abrdeck.html
@@ -109,7 +109,6 @@ hurdat_special_entries = {
     "G": "genesis",
     "T": "additional track point",
 }
-
 
 # Warning for formats that have yet to have a default way to determine crticial
 # radii from the input data
@@ -150,9 +149,9 @@ class Storm(object):
     *TODO:*  Add description of unit handling
 
     :Attributes:
-     - *t* (list(float) or list(datetime.datetiem)) Contains the time at which
+     - *t* (list(float) or list(np.datetiem64)) Contains the time at which
        each entry of the other arrays are at.  These are expected to
-       be *datetime* objects. Note that when written some formats require
+       be *datetime64* objects. Note that when written some formats require
        a *time_offset* to be set.
      - *eye_location* (ndarray(:, :)) location of the eye of the storm. Default
        units are in signed decimal longitude and latitude.
@@ -164,7 +163,7 @@ class Storm(object):
        are Pascals.
      - *storm_radius* (ndarray(:)) Radius of storm, often defined as the last
        closed iso-bar of pressure.  Default units are meters.
-     - *time_offset* (datetime.datetime) A date time that as an offset for the
+     - *time_offset* (np.datetiem64) A date time that as an offset for the
        simulation time.  This will default to the beginning of the first of
        the year that the first time point is found in.
      - *wind_speeds* (ndarray(:, :)) Wind speeds defined in every record, such
@@ -185,29 +184,19 @@ class Storm(object):
 
     # Define supported formats and models - keys are function name related and
     # values are the proper name and a citation or URL documenting the format
-    _supported_formats = {
-        "geoclaw": ["GeoClaw", "http://www.clawpack.org/storms"],
-        "atcf": [
-            "ATCF",
-            "http://www.nrlmry.navy.mil/atcf_web/docs/database/new/database.html",
-        ],
-        "hurdat": ["HURDAT", "http://www.aoml.noaa.gov/hrd/hurdat/Data_Storm.html"],
-        "ibtracs": [
-            "IBTrACS",
-            "https://www.ncdc.noaa.gov/ibtracs/index.php?name=ib-v4-access",
-        ],
-        "ibtracs_processed": ["IBTrACS", "Processed in CIL pipeline"],
-        "emanuel": ["Kerry Emanuel", "Email Correspondence"],
-        "jma": [
-            "JMA",
-            "http://www.jma.go.jp/jma/jma-eng/jma-center/rsmc-hp-pub-eg/Besttracks/e_format_bst.html",
-        ],
-        "imd": ["IMD", "http://www.rsmcnewdelhi.imd.gov.in/index.php"],
-        "tcvitals": [
-            "TC-Vitals",
-            "http://www.emc.ncep.noaa.gov/mmb/data_processing/tcvitals_description.htm",
-        ],
-    }
+    _supported_formats = {"geoclaw": ["GeoClaw", "http://www.clawpack.org/storms"],
+                          "atcf": ["ATCF", "http://www.nrlmry.navy.mil/atcf_web/docs/database/new/database.html"],
+                          "hurdat": ["HURDAT", "http://www.aoml.noaa.gov/hrd/hurdat/Data_Storm.html"],
+                          "ibtracs": ["IBTrACS", "https://www.ncdc.noaa.gov/ibtracs/index.php?name=ib-v4-access"],
+                          "jma": ["JMA", "http://www.jma.go.jp/jma/jma-eng/jma-center/rsmc-hp-pub-eg/Besttracks/e_format_bst.html"],
+                          "imd": ["IMD", "http://www.rsmcnewdelhi.imd.gov.in/index.php"],
+                          "tcvitals": ["TC-Vitals", "http://www.emc.ncep.noaa.gov/mmb/data_processing/tcvitals_description.htm"],
+                          "hwrf": ["HWRF", None],
+                          "owi": ['OWI', "http://www.oceanweather.com"],
+                          "ibtracs_processed": ["IBTrACS", "Processed in CIL pipeline"],
+                          "emanuel": ["Kerry Emanuel", "Email Correspondence"]
+        }
+
 
     def __init__(self, path=None, file_format="ATCF", **kwargs):
         r"""Storm Initiatlization Routine
@@ -215,8 +204,15 @@ class Storm(object):
         See :class:`Storm` for more info.
         """
 
-        self.t = None
+        # Time offsets are usually set to landfall but could be any time point
+        # and are not required
         self.time_offset = None
+        # File paths of either the original file that was read in for modeled
+        # storms or a list of files to be pointed to for data driven storms
+        self.file_paths = []
+
+        # Model parameters stored directly in the storm file
+        self.t = None
         self.eye_location = None
         self.max_wind_speed = None
         self.max_wind_radius = None
@@ -224,12 +220,18 @@ class Storm(object):
         self.storm_radius = None
         self.wind_speeds = None
 
+        # Parameters for data driven storms (e.g. HWRF or OWI)
+        # Each format will have a variety of files to be read in and parameters
+        # valid for its format
+        self.data_file_format = None
+        self.regional_forcing_type = None
+
         # Storm descriptions - not all formats provide these
-        self.name = None  # Possibly a list of a storm's names
-        self.basin = None  # Basin containing storm
-        self.ID = None  # ID code - depends on format
-        self.classification = None  # Classification of storm (e.g. HU)
-        self.event = None  # Event (e.g. landfall) - HURDAT
+        self.name = None                    # Possibly a list of a storm's names
+        self.basin = None                   # Basin containing storm
+        self.ID = None                      # ID code - depends on format
+        self.classification = None          # Classification of storm (e.g. HU)
+        self.event = None                   # Event (e.g. landfall) - HURDAT
 
         if path is not None:
             self.read(path, file_format=file_format, **kwargs)
@@ -239,11 +241,17 @@ class Storm(object):
     def __str__(self):
         r""""""
         output = f"Name: {self.name}\n"
-        if isinstance(self.t[0], datetime.datetime):
+        if self.t is None and self.time_offset is not None:
+            output += f"Time offset: {self.time_offset}\n"
+        elif isinstance(self.t[0], np.datetiem64):
             output += f"Dates: {self.t[0].isoformat()}"
-            output += f" - {self.t[-1].isoformat()}"
+            output += f" - {self.t[-1].isoformat()}\n"
         else:
-            output += f"Dates: {self.t[0]} - {self.t[-1]}"
+            output += f"Dates: {self.t[0]} - {self.t[-1]}\n"
+        output += "File paths:"
+        for path in self.file_paths:
+            output += f"\n  {path}"
+
         return output
 
     def __repr__(self):
@@ -293,7 +301,9 @@ class Storm(object):
         if file_format.lower() not in self._supported_formats.keys():
             raise ValueError("File format %s not available." % file_format)
 
-        getattr(self, "read_%s" % file_format.lower())(path, **kwargs)
+        if isinstance(path, str):
+            path = Path(path)
+        getattr(self, 'read_%s' % file_format.lower())(path, **kwargs)
 
     def read_geoclaw(self, path, verbose=False):
         r"""Read in a GeoClaw formatted storm file
@@ -307,29 +317,26 @@ class Storm(object):
         """
 
         # Attempt to get name from file if is follows the convention name.storm
-        if ".storm" in os.path.splitext(path):
-            self.name = os.path.splitext(os.path.basename(path))[0]
+        if path.suffix == ".storm":
+            self.name = path.name
 
         # Read header
-        with open(path, "r") as data_file:
+        with open(path, 'r') as data_file:
             num_casts = int(data_file.readline())
             time = data_file.readline()[:19]
             try:
-                self.time_offset = datetime.datetime.strptime(time, "%Y-%m-%dT%H:%M:%S")
+                self.time_offset = np.datetime64(time)
             except ValueError:
                 self.time_offset = float(time)
         # Read rest of data
         data = np.loadtxt(path, skiprows=3)
         num_forecasts = data.shape[0]
         self.eye_location = np.empty((num_forecasts, 2))
-        assert num_casts == num_forecasts
-        if isinstance(self.time_offset, datetime.datetime):
-            self.t = np.array(
-                [
-                    self.time_offset + datetime.timedelta(seconds=data[i, 0])
-                    for i in range(num_forecasts)
-                ]
-            )
+        assert(num_casts == num_forecasts)
+        if isinstance(self.time_offset, np.datetime64):
+            self.t = np.array([self.time_offset
+                               + np.timedelta64(data[i, 0], "s")
+                               for i in range(num_forecasts)])
         else:
             self.t = data[:, 0]
         self.eye_location[:, 0] = data[:, 1]
@@ -367,64 +374,26 @@ class Storm(object):
                 return np.nan
             return float(x)
 
-        df = pd.read_csv(
-            path,
-            engine="python",
-            sep=",+",
-            names=[
-                "BASIN",
-                "CY",
-                "YYYYMMDDHH",
-                "TECHNUM",
-                "TECH",
-                "TAU",
-                "LAT",
-                "LON",
-                "VMAX",
-                "MSLP",
-                "TY",
-                "RAD",
-                "WINDCODE",
-                "RAD1",
-                "RAD2",
-                "RAD3",
-                "RAD4",
-                "POUTER",
-                "ROUTER",
-                "RMW",
-                "GUSTS",
-                "EYE",
-                "SUBREGION",
-                "MAXSEAS",
-                "INITIALS",
-                "DIR",
-                "SPEED",
-                "STORMNAME",
-                "DEPTH",
-                "SEAS",
-                "SEASCODE",
-                "SEAS1",
-                "SEAS2",
-                "SEAS3",
-                "SEAS4",
-                "USERDEFINE1",
-                "userdata1",
-                "USERDEFINE2",
-                "userdata2",
-                "USERDEFINE3",
-                "userdata3",
-                "USERDEFINE4",
-                "userdata4",
-                "USERDEFINE5",
-                "userdata5",
-            ],
+        df = pd.read_csv(path, engine="python", sep=",+", names=[
+            "BASIN", "CY", "YYYYMMDDHH", "TECHNUM", "TECH", "TAU",
+            "LAT", "LON", "VMAX", "MSLP", "TY",
+            "RAD", "WINDCODE", "RAD1", "RAD2", "RAD3", "RAD4",
+            "POUTER", "ROUTER", "RMW", "GUSTS", "EYE", "SUBREGION",
+            "MAXSEAS", "INITIALS", "DIR", "SPEED", "STORMNAME", "DEPTH",
+            "SEAS", "SEASCODE", "SEAS1", "SEAS2", "SEAS3", "SEAS4",
+            "USERDEFINE1", "userdata1",
+            "USERDEFINE2", "userdata2",
+            "USERDEFINE3", "userdata3",
+            "USERDEFINE4", "userdata4",
+            "USERDEFINE5", "userdata5",
+        ],
             converters={
-                "YYYYMMDDHH": lambda d: datetime.datetime(
-                    int(d[1:5]), int(d[5:7]), int(d[7:9]), int(d[9:11])
-                ),
+                "YYYYMMDDHH": lambda d: np.datetime64(
+                        f"{d[1:5]}-{d[5:7]}-{d[7:9]}T{d[9:11]}"),
                 "TAU": lambda d: datetime.timedelta(hours=int(d)),
-                "LAT": lambda d: (-0.1 if d[-1] == "S" else 0.1) * int(d.strip("NS ")),
-                "LON": lambda d: (-0.1 if d[-1] == "W" else 0.1) * int(d.strip("WE ")),
+                "LAT": lambda d: (-.1 if d[-1] == "S" else .1) * int(d.strip("NS ")),
+                "LON": lambda d: (-.1 if d[-1] == "W" else .1) * int(d.strip("WE ")),
+                "RAD": num_converter,
                 "RAD": num_converter,
                 "RAD1": num_converter,
                 "RAD2": num_converter,
@@ -432,10 +401,15 @@ class Storm(object):
                 "RAD4": num_converter,
                 "ROUTER": num_converter,
                 "RMW": num_converter,
-                "STORMNAME": lambda d: (d.strip() if isinstance(d, str) else d),
-            },
-            dtype={"BASIN": str, "CY": int, "VMAX": float, "MSLP": float, "TY": str},
-        )
+                "STORMNAME": lambda d: (d.strip() if isinstance(d, str) else d)
+        },
+            dtype={
+                "BASIN": str,
+                "CY": int,
+                "VMAX": float,
+                "MSLP": float,
+                "TY": str
+        })
 
         # Grab data regarding basin and cyclone number from first row
         self.basin = ATCF_basins[df["BASIN"][0]]
@@ -445,53 +419,28 @@ class Storm(object):
         self.name = df["STORMNAME"].to_numpy()
 
         # Take forecast period TAU into consideration
-        df["DATE"] = df["YYYYMMDDHH"] + df["TAU"]
-        df = df[
-            [
-                "DATE",
-                "TAU",
-                "TY",
-                "LAT",
-                "LON",
-                "VMAX",
-                "MSLP",
-                "ROUTER",
-                "RMW",
-                "RAD",
-                "RAD1",
-                "RAD2",
-                "RAD3",
-                "RAD4",
-            ]
-        ]
+        df['DATE'] = df["YYYYMMDDHH"] + df["TAU"]
+        df = df[["DATE", "TAU", "TY", "LAT", "LON", "VMAX", "MSLP",
+                 "ROUTER", "RMW", "RAD", "RAD1", "RAD2", "RAD3", "RAD4", ]]
         df = df.sort_values(by=["DATE", "TAU"]).reset_index(drop=True)
 
         # For each DATE, choose best (smallest TAU) available data
-        for c in [
-            "LAT",
-            "LON",
-            "VMAX",
-            "MSLP",
-            "ROUTER",
-            "RMW",
-            "RAD",
-            "RAD1",
-            "RAD2",
-            "RAD3",
-            "RAD4",
-        ]:
+        for c in ["LAT", "LON", "VMAX", "MSLP", "ROUTER", "RMW",
+                  "RAD", "RAD1", "RAD2", "RAD3", "RAD4"]:
             df[c] = df[c].where(df[c] != 0, np.nan)  # value 0 means NaN
             df[c] = df.groupby("DATE")[c].bfill()
         df = df.groupby("DATE").first()
 
         # Wind profile (occasionally missing for older ATCF storms)
         # Wind speeds and their radii
-        df["RAD_MEAN"] = df[["RAD1", "RAD2", "RAD3", "RAD4"]].mean(axis=1, skipna=True)
+        df["RAD_MEAN"] = df[["RAD1", "RAD2", "RAD3", "RAD4"]].mean(
+            axis=1, skipna=True)
         df = df.drop(["TAU", "RAD1", "RAD2", "RAD3", "RAD4"], axis=1)
         df = df.dropna(how="any", subset=["LAT", "LON"])
 
         # Create time
-        self.t = list(df.index.to_pydatetime())
+        # self.t = list(df.index.to_pydatetime())
+        self.t = df.index
 
         # Classification, note that this is not the category of the storm
         self.classification = df["TY"].to_numpy()
@@ -504,13 +453,17 @@ class Storm(object):
         #  max_wind_radius  - convert from nm to m - 1.8520000031807990 * 1000.0
         #  central_pressure - convert from mbar to Pa - 100.0
         #  Radius of last isobar contour - convert from nm to m - 1.852000003180799d0 * 1000.0
-        self.max_wind_speed = units.convert(df["VMAX"].to_numpy(), "knots", "m/s")
-        self.central_pressure = units.convert(df["MSLP"].to_numpy(), "mbar", "Pa")
-        self.max_wind_radius = units.convert(df["RMW"].to_numpy(), "nmi", "m")
-        self.storm_radius = units.convert(df["ROUTER"].to_numpy(), "nmi", "m")
+        self.max_wind_speed = units.convert(
+            df["VMAX"].to_numpy(), 'knots', 'm/s')
+        self.central_pressure = units.convert(
+            df["MSLP"].to_numpy(), 'mbar', 'Pa')
+        self.max_wind_radius = units.convert(df["RMW"].to_numpy(), 'nmi', 'm')
+        self.storm_radius = units.convert(df["ROUTER"].to_numpy(), 'nmi', 'm')
         self.wind_speeds = df[["RAD", "RAD_MEAN"]].to_numpy()
-        self.wind_speeds[:, 0] = units.convert(self.wind_speeds[:, 0], "knots", "m/s")
-        self.wind_speeds[:, 1] = units.convert(self.wind_speeds[:, 1], "nmi", "m")
+        self.wind_speeds[:, 0] = units.convert(
+            self.wind_speeds[:, 0], 'knots', 'm/s')
+        self.wind_speeds[:, 1] = units.convert(
+            self.wind_speeds[:, 1], 'nmi', 'm')
 
     def read_hurdat(self, path, verbose=False):
         r"""Read in HURDAT formatted storm file
@@ -547,7 +500,7 @@ class Storm(object):
         num_lines = len(data_block)
 
         # Parse data block
-        self.t = []
+        self.t = np.empty(num_lines, dtype=np.datetime64)
         self.event = np.empty(num_lines, dtype=str)
         self.classification = np.empty(num_lines, dtype=str)
         self.eye_location = np.empty((num_lines, 2))
@@ -562,15 +515,11 @@ class Storm(object):
             data = [value.strip() for value in line.split(",")]
 
             # Create time
-            self.t.append(
-                datetime.datetime(
-                    int(data[0][:4]),
-                    int(data[0][4:6]),
-                    int(data[0][6:8]),
-                    int(data[1][:2]),
-                    int(data[1][2:]),
-                )
-            )
+            self.t[i] = np.datetime64(f"{data[0][:4]}"      + 
+                                      f"-{data[0][4:6]}"    + 
+                                      f"-{data[0][6:8]}"    + 
+                                      f"T{data[1][:2]}"     + 
+                                      f":{data[1][2:]}")
 
             # If an event is occuring record it.  If landfall then use as an
             # offset.   Note that if there are multiple landfalls the last one
@@ -595,37 +544,30 @@ class Storm(object):
 
             # Intensity information - radii are not included directly in this
             # format and instead radii of winds above a threshold are included
-            self.max_wind_speed[i] = units.convert(float(data[6]), "knots", "m/s")
-            self.central_pressure[i] = units.convert(float(data[7]), "mbar", "Pa")
+            self.max_wind_speed[i] = units.convert(
+                float(data[6]), 'knots', 'm/s')
+            self.central_pressure[i] = units.convert(
+                float(data[7]), 'mbar', 'Pa')
             warnings.warn(missing_data_warning_str)
             self.max_wind_radius[i] = -1
             self.storm_radius[i] = -1
 
-    def read_ibtracs(
-        self,
-        path,
-        sid=None,
-        storm_name=None,
-        year=None,
-        start_date=None,
-        agency_pref=[
-            "wmo",
-            "usa",
-            "tokyo",
-            "newdelhi",
-            "reunion",
-            "bom",
-            "nadi",
-            "wellington",
-            "cma",
-            "hko",
-            "ds824",
-            "td9636",
-            "td9635",
-            "neumann",
-            "mlc",
-        ],
-    ):
+    def read_ibtracs(self, path, sid=None, storm_name=None, year=None, start_date=None,
+                     agency_pref=['wmo',
+                                  'usa',
+                                  'tokyo',
+                                  'newdelhi',
+                                  'reunion',
+                                  'bom',
+                                  'nadi',
+                                  'wellington',
+                                  'cma',
+                                  'hko',
+                                  'ds824',
+                                  'td9636',
+                                  'td9635',
+                                  'neumann',
+                                  'mlc']):
         r"""Read in IBTrACS formatted storm file
 
         This reads in the netcdf-formatted IBTrACS v4 data. You must either pass
@@ -646,7 +588,7 @@ class Storm(object):
              *year* must not be None.
          - *year* (int, optional) year of storm of interest.
              Either *sid* OR *storm_name* and *year* must not be None.
-         - *start_date* (:py:class:`datetime.datetime`, optional) If storm is not
+         - *start_date* (np.datetime64, optional) If storm is not
              named, will find closest unnamed storm to this start date. Only
              used for unnamed storms when specifying *storm_name* and *year*
              does not uniquely identify storm.
@@ -667,7 +609,8 @@ class Storm(object):
 
         # only allow one method for specifying storms
         if (sid is not None) and ((storm_name is not None) or (year is not None)):
-            raise ValueError("Cannot specify both *sid* and *storm_name* or *year*.")
+            raise ValueError(
+                'Cannot specify both *sid* and *storm_name* or *year*.')
 
         with xr.open_dataset(path) as ds:
             # match on sid
@@ -677,10 +620,10 @@ class Storm(object):
             else:
                 storm_name = storm_name.upper()
                 # in case storm is unnamed
-                if storm_name.upper() in ["UNNAMED", "NO-NAME"]:
-                    storm_name = "NOT_NAMED"
-                storm_match = ds.name == storm_name.encode()
-                year_match = (ds.time.dt.year == year).any(dim="date_time")
+                if storm_name.upper() in ['UNNAMED', 'NO-NAME']:
+                    storm_name = 'NOT_NAMED'
+                storm_match = (ds.name == storm_name.encode())
+                year_match = (ds.time.dt.year == year).any(dim='date_time')
                 match = storm_match & year_match
             ds = ds.sel(storm=match).squeeze()
 
@@ -691,8 +634,7 @@ class Storm(object):
                 else:
                     # see if a date was provided for multiple unnamed storms
                     assert start_date is not None, ValueError(
-                        "Multiple storms identified and no start_date specified."
-                    )
+                        'Multiple storms identified and no start_date specified.')
 
                     start_times = ds.time.isel(date_time=0)
                     start_date = np.datetime64(start_date)
@@ -709,45 +651,34 @@ class Storm(object):
             ds = ds.sel(date_time=valid_t)
 
             # list of the agencies that correspond to 'usa_*' variables
-            usa_agencies = [
-                b"atcf",
-                b"hurdat_atl",
-                b"hurdat_epa",
-                b"jtwc_ep",
-                b"nhc_working_bt",
-                b"tcvightals",
-                b"tcvitals",
-            ]
+            usa_agencies = [b'atcf', b'hurdat_atl', b'hurdat_epa', b'jtwc_ep',
+                            b'nhc_working_bt', b'tcvightals', b'tcvitals']
 
             # Create mapping from wmo_ or usa_agency
             # to the appropriate variable
-            agency_map = {b"": agency_pref.index("wmo")}
+            agency_map = {b'': agency_pref.index('wmo')}
             # account for multiple usa agencies
             for a in usa_agencies:
                 agency_map[a] = agency_pref.index("usa")
             # map all other agencies to themselves
-            for i in [a for a in agency_pref if a not in ["wmo", "usa"]]:
-                agency_map[i.encode("utf-8")] = agency_pref.index(i)
+            for i in [a for a in agency_pref if a not in ['wmo', 'usa']]:
+                agency_map[i.encode('utf-8')] = agency_pref.index(i)
 
             # fill in usa as provider if usa_agency is
             # non-null when wmo_agency is null
-            provider = ds.wmo_agency.where(ds.wmo_agency != b"", ds.usa_agency)
+            provider = ds.wmo_agency.where(ds.wmo_agency != b'', ds.usa_agency)
 
             # get index into from agency that is wmo_provider
             def map_val_to_ix(a):
-                def func(x):
-                    return agency_map[x]
-
+                def func(x): return agency_map[x]
                 return xr.apply_ufunc(func, a, vectorize=True)
-
             pref_agency_ix = map_val_to_ix(provider)
 
             # GET MAX WIND SPEED and PRES
             pref_vals = {}
-            for v in ["wind", "pres"]:
-                all_vals = ds[["{}_{}".format(i, v) for i in agency_pref]].to_array(
-                    dim="agency"
-                )
+            for v in ['wind', 'pres']:
+                all_vals = ds[['{}_{}'.format(i, v) for i in agency_pref]].to_array(
+                    dim='agency')
 
                 # get wmo value
                 val_pref = ds["wmo_" + v]
@@ -767,23 +698,20 @@ class Storm(object):
 
             # THESE CANNOT BE MISSING SO DROP
             # IF EITHER MISSING
-            valid = pref_vals["wind"].notnull() & pref_vals["pres"].notnull()
+            valid = pref_vals['wind'].notnull() & pref_vals['pres'].notnull()
             if not valid.any():
                 raise NoDataError(missing_necessary_data_warning_str)
             ds = ds.sel(date_time=valid)
-            for i in ["wind", "pres"]:
+            for i in ['wind', 'pres']:
                 pref_vals[i] = pref_vals[i].sel(date_time=valid)
 
             # GET RMW and ROCI
             # (these can be missing)
-            for r in ["rmw", "roci"]:
-                order = [
-                    "{}_{}".format(i, r)
-                    for i in agency_pref
-                    if "{}_{}".format(i, r) in ds.data_vars.keys()
-                ]
-                vals = ds[order].to_array(dim="agency")
-                best_ix = vals.notnull().argmax(dim="agency")
+            for r in ['rmw', 'roci']:
+                order = ['{}_{}'.format(i, r) for i in agency_pref if
+                         '{}_{}'.format(i, r) in ds.data_vars.keys()]
+                vals = ds[order].to_array(dim='agency')
+                best_ix = vals.notnull().argmax(dim='agency')
                 val_pref = vals.isel(agency=best_ix)
                 pref_vals[r] = val_pref
 
@@ -796,51 +724,34 @@ class Storm(object):
             self.ID = ds.sid.astype(str).item()
 
             # convert datetime64 to datetime.datetime
-            self.t = []
-            for d in ds.time:
-                t = d.dt
-                self.t.append(
-                    datetime.datetime(
-                        t.year, t.month, t.day, t.hour, t.minute, t.second
-                    )
-                )
+            self.t = ds.time
 
             # events
             self.event = ds.usa_record.values.astype(str)
 
             # time offset
-            if (self.event == "L").any():
+            if (self.event == 'L').any():
                 # if landfall, use last landfall
-                self.time_offset = np.array(self.t)[self.event == "L"][-1]
-            if (self.event == "L").any():
-                # if landfall, use last landfall
-                self.time_offset = np.array(self.t)[self.event == "L"][-1]
+                self.time_offset = np.array(self.t)[self.event == 'L'][-1]
+            else:
+                # if no landfall, use last time of storm
+                self.time_offset = self.t[-1]
+
             # Classification, note that this is not the category of the storm
             self.classification = ds.usa_status.values
             self.eye_location = np.array([ds.lon, ds.lat]).T
+
             # Intensity information - for now, including only common, basic intensity
             # info.
             # TODO: add more detailed info for storms that have it
-            self.max_wind_speed = (
-                units.convert(pref_vals["wind"], "knots", "m/s")
-                .where(pref_vals["wind"].notnull(), -1)
-                .values
-            )
-            self.central_pressure = (
-                units.convert(pref_vals["pres"], "mbar", "Pa")
-                .where(pref_vals["pres"].notnull(), -1)
-                .values
-            )
-            self.max_wind_radius = (
-                units.convert(pref_vals["rmw"], "nmi", "m")
-                .where(pref_vals["rmw"].notnull(), -1)
-                .values
-            )
-            self.storm_radius = (
-                units.convert(pref_vals["roci"], "nmi", "m")
-                .where(pref_vals["roci"].notnull(), -1)
-                .values
-            )
+            self.max_wind_speed = units.convert(
+                pref_vals['wind'], 'knots', 'm/s').where(pref_vals['wind'].notnull(), -1).values
+            self.central_pressure = units.convert(pref_vals['pres'], 'mbar', 'Pa').where(
+                pref_vals['pres'].notnull(), -1).values
+            self.max_wind_radius = units.convert(pref_vals['rmw'], 'nmi', 'm').where(
+                pref_vals['rmw'].notnull(), -1).values
+            self.storm_radius = units.convert(pref_vals['roci'], 'nmi', 'm').where(
+                pref_vals['roci'].notnull(), -1).values
 
             # warn if you have missing vals for RMW or ROCI
             if (self.max_wind_radius.max()) == -1 or (self.storm_radius.max() == -1):
@@ -1095,7 +1006,7 @@ class Storm(object):
         assert num_lines == len(data_block)
 
         # Parse data block
-        self.t = []
+        self.t = np.empty(num_lines, dtype=np.datetime64)
         self.event = np.empty(num_lines, dtype=str)
         self.classification = np.empty(num_lines, dtype=str)
         self.eye_location = np.empty((num_lines, 2))
@@ -1103,20 +1014,16 @@ class Storm(object):
         self.central_pressure = np.empty(num_lines)
         self.max_wind_radius = np.empty(num_lines)
         self.storm_radius = np.empty(num_lines)
-        for i, line in enumerate(data_block):
+        for (i, line) in enumerate(data_block):
             if len(line) == 0:
                 break
             data = [value.strip() for value in line.split()]
 
             # Create time
-            self.t.append(
-                datetime.datetime(
-                    int(data[0][:2]),
-                    int(data[0][2:4]),
-                    int(data[0][4:6]),
-                    int(data[0][6:]),
-                )
-            )
+            self.t[i] = np.datetime64(f"{data[0][:2]}"      + 
+                                      f"-{data[0][2:4]}"    + 
+                                      f"-{data[0][4:6]}"    + 
+                                      f"T{data[0][6:]}")
 
             # Classification, note that this is not the category of the storm
             self.classification[i] = int(data[1])
@@ -1128,8 +1035,10 @@ class Storm(object):
             # Intensity information - current the radii are not directly given
             # Available data includes max/min of radius of winds of 50 and
             # 30 kts instead
-            self.central_pressure[i] = units.convert(float(data[5]), "hPa", "Pa")
-            self.max_wind_speed[i] = units.convert(float(data[6]), "knots", "m/s")
+            self.central_pressure[i] = units.convert(
+                float(data[5]), 'hPa', 'Pa')
+            self.max_wind_speed[i] = units.convert(
+                float(data[6]), 'knots', 'm/s')
             warnings.warn(missing_data_warning_str)
             self.max_wind_radius[i] = -1
             self.storm_radius[i] = -1
@@ -1143,13 +1052,9 @@ class Storm(object):
 
         Return ValueError if format incorrect or if file not IMD.
         """
-        raise NotImplementedError(
-            (
-                "Reading in IMD files is not ",
-                "implemented yet but is planned for a ",
-                "future release.",
-            )
-        )
+        raise NotImplementedError(("Reading in IMD files is not ",
+                                   "implemented yet but is planned for a ",
+                                   "future release."))
 
     def read_tcvitals(self, path, verbose=False):
         r"""Extract relevant hurricane data from TCVITALS file
@@ -1176,7 +1081,7 @@ class Storm(object):
         #  max_wind_radius  - convert from km to m - 1000.0
         #  Central_pressure - convert from mbar to Pa - 100.0
         #  Radius of last isobar contour - convert from km to m - 1000.0
-        self.t = []
+        self.t = np.empty(num_lines, dtype=np.datetime64)
         self.classification = np.empty(num_lines, dtype=str)
         self.eye_location = np.empty((num_lines, 2))
         self.max_wind_speed = np.empty(num_lines)
@@ -1195,14 +1100,10 @@ class Storm(object):
                 self.ID = int(data[1][:2])
 
             # Create time
-            self.t.append(
-                datetime.datetime(
-                    int(data[3][0:4]),
-                    int(data[3][4:6]),
-                    int(data[3][6:]),
-                    int(data[4][:2]),
-                )
-            )
+            self.t[i] = np.datetime64(f"{data[0][:2]}"      + 
+                                      f"-{data[0][2:4]}"    + 
+                                      f"-{data[0][4:6]}"    + 
+                                      f"T{data[0][6:]}")
 
             # Parse eye location - longitude/latitude order
             if data[5][-1] == "N":
@@ -1216,9 +1117,57 @@ class Storm(object):
 
             # Intensity Information
             self.max_wind_speed[i] = float(data[12])
-            self.central_pressure[i] = units.convert(float(data[9]), "mbar", "Pa")
-            self.max_wind_radius[i] = units.convert(float(data[13]), "km", "m")
-            self.storm_radius[i] = units.convert(float(data[11]), "km", "m")
+            self.central_pressure[i] = units.convert(
+                float(data[9]), 'mbar', 'Pa')
+            self.max_wind_radius[i] = units.convert(float(data[13]), 'km', 'm')
+            self.storm_radius[i] = units.convert(float(data[11]), 'km', 'm')
+
+    def read_hwrf(self, path, verbose=False):
+        r"""Read in HWRF information file
+
+        :Input:
+         - *path* (string) Path to the file to be read.
+         - *verbose* (bool) Output more info regarding reading.
+        """
+
+        raise NotImplementedError("HWRF reading of the information file is ",
+                                  " not implemented.")
+
+    def read_owi(self, path, verbose=False):
+        r"""Read in OWI information file
+
+        Reads in file that provides information about the forcing for an OWI
+        produced wind and pressure field as well as the paths to those files.
+
+        :Input:
+         - *path* (string) Path to the file to be read.
+         - *verbose* (bool) Output more info regarding reading.
+        """
+
+        with path.open() as data_file:
+            data_file.readline()
+            self.time_offset = np.datetime64(data_file.readline()[:19])
+            self.data_file_format = int(
+                                data_file.readline().partition("#")[0].rstrip())
+            data_file.readline()
+            data_file.readline()
+            self.file_paths = []
+            if self.data_file_format == 1:
+                num_regions = int(data_file.readline().partition("#")[0].rstrip())
+                for line in data_file:
+                    self.file_paths.append(Path(line.partition("#")[0].rstrip()))
+                # Check to make sure we have the right number of files
+                if len(self.file_paths)%2 != 0:
+                    raise ValueError(f"Found {len(self.file_paths)} files " + 
+                                      "listed, expected even number.")
+                if num_regions != int(len(self.file_paths) / 2):
+                    raise ValueError(f"Found {len(self.file_paths)} files " + 
+                                      "listed but number of regions was " +
+                                     f"{num_regions}.")
+            elif self.data_file_format == 2:
+                self.file_paths.append(
+                          Path(data_file.readline().partition("#")[0].rstrip()))
+
 
     # =========================================================================
     # Write Routines
@@ -1245,16 +1194,15 @@ class Storm(object):
 
         getattr(self, "write_%s" % file_format.lower())(path, **kwargs)
 
-    def write_geoclaw(
-        self, path, force=False, skip=True, verbose=False, fill_dict={}, **kwargs
-    ):
+    def write_geoclaw(self, path, force=False, skip=True, verbose=False,
+                      fill_dict={}, **kwargs):
         r"""Write out a GeoClaw formatted storm file
 
         GeoClaw storm files are read in by the GeoClaw Fortran code.
 
         :Input:
          - *path* (string) Path to the file to be written.
-         - *skip* (bool) Skip a time if NaNs are found and are not replaced.
+         - *skip* (bool) Skip a time if NaNs are found and are not replaced.  
             Default is `True`.
          - *force* (bool) Force output of storm even if there is missing data.
             Default is `False`.
@@ -1265,9 +1213,9 @@ class Storm(object):
             the function signature should be `my_func(t, storm)` where t is the
             time of the forecast and `storm` is the storm object.  If the
             field remains a NaN or a function is not provided these lines will
-            be assumed redundant and will be ommitted.  Note that the older
+            be assumed redundant and will be ommitted.  Note that the older 
             keyword arguments are put in this dictionary.  Currently the one
-            default function is for `storm_radius`, which sets the value to
+            default function is for `storm_radius`, which sets the value to 
             500 km.
         """
 
@@ -1275,9 +1223,10 @@ class Storm(object):
         fill_dict.update({"storm_radius": lambda t, storm: 500e3})
         # Handle older interface that had specific fill functions
         if "max_wind_radius_fill" in kwargs.keys():
-            fill_dict.update({"max_wind_radius": kwargs["max_wind_radius_fill"]})
+            fill_dict.update(
+                {"max_wind_radius": kwargs['max_wind_radius_fill']})
         if "storm_radius_fill" in kwargs.keys():
-            fill_dict.update({"storm_radius": kwargs["storm_radius_fill"]})
+            fill_dict.update({"storm_radius": kwargs['storm_radius_fill']})
 
         # Loop through each line of data and if the line is valid, perform the
         # necessary work to write it out.  Otherwise either raise an exception
@@ -1291,35 +1240,28 @@ class Storm(object):
 
             # Check each value we need for this time to make sure it is valid
             valid = True
-            for name in [
-                "max_wind_speed",
-                "central_pressure",
-                "max_wind_radius",
-                "storm_radius",
-            ]:
+            for name in ["max_wind_speed", "central_pressure",
+                         "max_wind_radius", "storm_radius"]:
                 if np.isnan(getattr(self, name)[n]):
                     if name in fill_dict.keys():
                         # Fill value with function provided
-                        getattr(self, name)[n] = fill_dict[name](self.t[n], self)
+                        getattr(self, name)[n] = fill_dict[name](
+                            self.t[n], self)
                     elif skip:
                         # Skip this line
                         valid = False
                         if verbose:
                             # Just warn that a NaN was found but continue
-                            msg = (
-                                "*** WARNING:  The value {} at {} is a "
-                                + "NaN. Skipping this line."
-                            )
+                            msg = ("*** WARNING:  The value {} at {} is a " +
+                                   "NaN. Skipping this line.")
                             warnings.warn(msg.format(name, self.t[n]))
                     elif not force:
                         # If we are not asked to force to write raise an
                         # exception given the NaN
-                        msg = (
-                            "The value {} at {} is a NaN and the storm "
-                            + "will not be written in GeoClaw format.  If "
-                            + "you want to fill in the value provide a "
-                            + "function or set `force=True`."
-                        )
+                        msg = ("The value {} at {} is a NaN and the storm " +
+                               "will not be written in GeoClaw format.  If " +
+                               "you want to fill in the value provide a " +
+                               "function or set `force=True`.")
                         raise ValueError(msg.format(name, self.t[n]))
             if not valid:
                 continue
@@ -1355,8 +1297,9 @@ class Storm(object):
             with open(path, "w") as data_file:
                 # Write header
                 data_file.write(f"{num_casts}\n")
-                if isinstance(self.time_offset, datetime.datetime):
-                    data_file.write(f"{self.time_offset.isoformat()}\n\n")
+                if isinstance(self.time_offset, np.datetime64):
+                    data_file.write(\
+                      f"{np.datetime_as_string(self.time_offset,unit='s')}\n\n")
                 else:
                     data_file.write(f"{str(self.time_offset)}\n\n")
 
@@ -1366,8 +1309,7 @@ class Storm(object):
 
         except Exception as e:
             # If an exception occurs clean up a partially generated file
-            if os.path.exists(path):
-                os.remove(path)
+            Path.unlink(path, missing_ok=True)
             raise e
 
     def write_atcf(self, path, verbose=False):
@@ -1386,33 +1328,28 @@ class Storm(object):
         try:
             with open(path, "w") as data_file:
                 for n in range(len(self.t)):
-                    data_file.write(
-                        "".join(
-                            (
-                                ", " * 2,
-                                "%s" % seconds2date(self.t[n]),
-                                ", " * 4,
-                                "%s" % (int(self.eye_location[n, 0] * 10.0)),
-                                ", ",
-                                "%s" % (int(self.eye_location[n, 1] * 10.0)),
-                                ", ",
-                                "%s" % self.max_wind_speed[n],
-                                ", ",
-                                "%s" % self.central_pressure[n],
-                                ", ",
-                                ", " * 8,
-                                "%s" % self.storm_radius[n],
-                                ", ",
-                                "%s" % self.max_wind_radius[n],
-                                ", " * 10,
-                                "\n",
-                            )
-                        )
-                    )
+                    data_file.write("".join((", " * 2,
+                                             "%s" % seconds2date(self.t[n]),
+                                             ", " * 4,
+                                             "%s" % (int(self.eye_location[n, 0] *
+                                                         10.0)),
+                                             ", ",
+                                             "%s" % (int(self.eye_location[n, 1] *
+                                                         10.0)),
+                                             ", ",
+                                             "%s" % self.max_wind_speed[n],
+                                             ", ",
+                                             "%s" % self.central_pressure[n],
+                                             ", ",
+                                             ", " * 8,
+                                             "%s" % self.storm_radius[n],
+                                             ", ",
+                                             "%s" % self.max_wind_radius[n],
+                                             ", " * 10,
+                                             "\n")))
         except Exception as e:
             # Remove possiblly partially generated file if not successful
-            if os.path.exists(path):
-                os.remove(path)
+            Path.unlink(path, missing_ok=True)
             raise e
 
     def write_hurdat(self, path, verbose=False):
@@ -1438,42 +1375,37 @@ class Storm(object):
 
                     # Convert latitude to proper Hurdat format e.g 12.0N
                     if latitude > 0:
-                        latitude = str(np.abs(latitude)) + "N"
+                        latitude = str(np.abs(latitude)) + 'N'
                     else:
-                        latitude = str(np.abs(latitude)) + "S"
+                        latitude = str(np.abs(latitude)) + 'S'
 
                     # Convert longitude to proper Hurdat format e.g 12.0W
                     if longitude > 0:
-                        longitude = str(np.abs(longitude)) + "E"
+                        longitude = str(np.abs(longitude)) + 'E'
                     else:
-                        longitude = str(np.abs(longitude)) + "W"
+                        longitude = str(np.abs(longitude)) + 'W'
 
-                    data_file.write(
-                        "".join(
-                            (
-                                "%s" % self.seconds2date(self.t[n])[0:-2],
-                                "%s00" % self.seconds2date(self.t[n])[-2:],
-                                ", " * 3,
-                                "%s" % (latitude),
-                                ", ",
-                                "%s" % (longitude),
-                                ", ",
-                                "%s" % self.max_wind_speed[n],
-                                ", ",
-                                "%s" % self.central_pressure[n],
-                                ", ",
-                                "%s" % self.storm_radius[n],
-                                ", ",
-                                "%s" % self.max_wind_radius[n],
-                                ", " * 10,
-                                "\n",
-                            )
-                        )
-                    )
+                    data_file.write("".join(("%s" % self.seconds2date(
+                        self.t[n])[0:-2],
+                        "%s00" % self.seconds2date(
+                        self.t[n])[-2:],
+                        ", " * 3,
+                        "%s" % (latitude),
+                        ", ",
+                        "%s" % (longitude),
+                        ", ",
+                        "%s" % self.max_wind_speed[n],
+                        ", ",
+                        "%s" % self.central_pressure[n],
+                        ", ",
+                        "%s" % self.storm_radius[n],
+                        ", ",
+                        "%s" % self.max_wind_radius[n],
+                        ", " * 10,
+                        "\n")))
         except Exception as e:
             # Remove possiblly partially generated file if not successful
-            if os.path.exists(path):
-                os.remove(path)
+            Path.unlink(path, missing_ok=True)
             raise e
 
     def write_jma(self, path, verbose=False):
@@ -1492,32 +1424,27 @@ class Storm(object):
         try:
             with open(path, "w") as data_file:
                 for n in range(self.t.shape[0]):
-                    data_file.write(
-                        "".join(
-                            (
-                                "%s" % self.seconds2date(self.t[n]),
-                                " " * 4,
-                                "%s" % (int(self.eye_location[n, 0] * 10.0)),
-                                ", ",
-                                "%s" % (int(self.eye_location[n, 1] * 10.0)),
-                                ", ",
-                                "%s" % self.max_wind_speed[n],
-                                ", ",
-                                "%s" % self.central_pressure[n],
-                                ", ",
-                                ", " * 8,
-                                "%s" % self.storm_radius[n],
-                                ", ",
-                                "%s" % self.max_wind_radius[n],
-                                ", " * 10,
-                                "\n",
-                            )
-                        )
-                    )
+                    data_file.write("".join(("%s" % self.seconds2date(self.t[n]),
+                                             " " * 4,
+                                             "%s" % (int(self.eye_location[n, 0] *
+                                                         10.0)),
+                                             ", ",
+                                             "%s" % (int(self.eye_location[n, 1] *
+                                                         10.0)),
+                                             ", ",
+                                             "%s" % self.max_wind_speed[n],
+                                             ", ",
+                                             "%s" % self.central_pressure[n],
+                                             ", ",
+                                             ", " * 8,
+                                             "%s" % self.storm_radius[n],
+                                             ", ",
+                                             "%s" % self.max_wind_radius[n],
+                                             ", " * 10,
+                                             "\n")))
         except Exception as e:
             # Remove possiblly partially generated file if not successful
-            if os.path.exists(path):
-                os.remove(path)
+            Path.unlink(path, missing_ok=True)
             raise e
 
     def write_imd(self, path, verbose=False):
@@ -1691,9 +1618,212 @@ class Storm(object):
                         )
                     )
 
+    def write_hwrf(self, path, verbose=False):
+        r"""Write out an TCVITALS formatted storm file
+
+        :Input:
+         - *path* (string) Path to the file to be written.
+         - *verbose* (bool) Print out additional information when writing.
+         """
+        
+        raise NotImplementedError("HWRF formatted info files cannot be ",
+                                  "written out yet.")
+
+    def write_owi(self, path, verbose=False):
+        r"""Write out an OWI information formatted storm file
+
+        :Input:
+         - *path* (string) Path to the file to be written.
+         - *verbose* (bool) Print out additional information when writing.
+         """
+
+         # OWI file formats
+        _data_file_format_mapping = {'ascii': 1, 'nws12': 1, 
+                                     'netcdf': 2, 'nws13': 2}
+
+        try:
+            with path.open('w') as data_file:
+                # Write header
+                data_file.write("# OWI Data Decription - NWS12 and NWS13\n")
+                if isinstance(self.data_file_format, int):
+                    file_format = self.data_file_format
+                elif isinstance(self.data_file_format, str):
+                    if (self.data_file_format.lower() in 
+                                            _data_file_format_mapping.keys()):
+                        file_format = _data_file_format_mapping[
+                                                  self.data_file_format.lower()]
+                    else:
+                        raise TypeError(f"Unknown storm data file format type" +
+                                        f" '{self.data_file_format}' provided.")
+                else:
+                    raise TypeError(f"Unknown storm data file format type" +
+                                    f" '{self.data_file_format}' provided.")
+
+                # Write out data
+                # Time offset
+                self.time_offset = np.datetime64(self.time_offset)
+                if isinstance(self.time_offset, np.datetime64):
+                    t = np.datetime_as_string(self.time_offset, unit="s")
+                    data_file.write(f"{t.ljust(20)} # Time Offset\n")
+                else:
+                    raise ValueError("Time offset must be a datetime64 object.")
+
+                # File format
+                data_file.write(f"{str(file_format).ljust(20)} # File format\n")
+                data_file.write("\n")
+
+                # File format specific values
+                data_file.write(f"# Data Information\n")
+                if file_format ==  1:
+                    # :TODO: Modify number of regions to be indpendent of file_paths
+                    if len(self.file_paths)%2 != 0:
+                        raise ValueError("The number of files should be even, " + 
+                                         "one for pressure and wind, for each " +
+                                         "resolution provided.")
+                    num_regions = int(len(self.file_paths) / 2)
+                    data_file.write(f"{str(num_regions).ljust(20)}" + 
+                                     " # Number of regions\n")
+                    for n in range(int(len(self.file_paths) / 2)):
+                        data_file.write(f"{str(self.file_paths[n * 2]).ljust(20)}\n")
+                        data_file.write(f"{str(self.file_paths[n * 2 + 1]).ljust(20)}\n")
+                elif file_format == 2:
+                    if len(self.file_paths) != 1:
+                        raise ValueError(f"Expected 1 file for format " + 
+                                         f"{file_format} rather than " +
+                                         f"{len(self.file_paths)}")
+                    data_file.write(f"{self.file_paths[0]}\n")
+
+        except Exception as e:
+            # If an exception occurs clean up a partially generated file            
+            Path.unlink(path, missing_ok=True)
+            raise e
+
+
+    # ================
+    #  Track Plotting
+    # ================
+    def plot(self, ax, *args, t_range=None, categorization=None,
+                       cat_colors={}, plot_swath=False, radius=None, 
+                       coordinate_system=2, fill_alpha=0.25, fill_color='red',
+                       **kwargs):
+        """Plot this storm's track in the given axes object
+        
+        :Input:
+         - *ax* (matplotlib.pyplot.axes) Axes to plot into.
+         - *t_range* (list) Time range to plot the track for.  If None then use
+            entire range.  Default is None.
+         - *categorization* (str) Type of categorization to be used.  This is 
+            used to map to the keys in the cat_colors dictionary.  Default is 
+            None and will cause no categorization to occur.
+         - *cat_colors* (dict) Color mapping between numeric categorization and
+            colors to be plotted for the track.
+         - *plot_swath* (bool) Plot a swath around the track using one of the 
+            methods determined by what radius information is provided.  Default 
+            is False.
+         - *radius* (None or float or numpy.ndarray)
+         - *coordinate_system* (int)
+         - *fill_alpha* (float)
+         - *fill_color* (color)
+         - *kwargs* All additional keyword arguments are passed to the plotting
+            command for the track.
+        """
+
+        import matplotlib.pyplot as plt
+
+        # Extract information for plotting the track/swath
+        t = self.t
+        x = self.eye_location[:, 0]
+        y = self.eye_location[:, 1]
+        if t_range is not None:
+            t = np.ma.masked_outside(t, t_range[0], t_range[1])
+            x = np.ma.array(x, mask=t.mask).compressed()
+            y = np.ma.array(y, mask=t.mask).compressed()
+            t = t.compressed()
+
+        # Plot track
+        if categorization is None:
+            # Plot the track as a simple line with the given style
+            ax.plot(x, y, *args, **kwargs)
+        else:
+            if self.max_wind_speed is None:
+                raise ValueError("Maximum wind speed not available so "
+                                 "plotting catgories is not available.")
+
+            # Plot the track using the colors provided in the dictionary
+            cat_color_defaults = {5: 'red', 4: 'yellow', 3: 'orange', 
+                                  2: 'green', 1: 'blue', 0: 'gray', 
+                                  -1: 'lightgray'}
+            colors = [cat_colors.get(category, cat_color_defaults[category])
+                      for category in self.category(categorization=categorization)]
+            # Remove color from kwargs if they were given
+            kwargs.pop('color', None)
+            for i in range(t.shape[0] - 1):
+                ax.plot(x[i:i+2], y[i:i+2], color=colors[i], **kwargs)
+
+        # Plot swath
+        if plot_swath:
+            if (isinstance(radius, float) or isinstance(radius, np.ndarray)
+                    or radius is None):
+
+                if radius is None:
+                    # Default behavior
+                    if self.storm_radius is None:
+                        raise ValueError("Cannot use storm radius for plotting "
+                                         "the swath as the data is not available.")
+                    else:
+                        if coordinate_system == 1:
+                            _radius = self.storm_radius
+                        elif coordinate_system == 2:
+                            _radius = units.convert(self.storm_radius,
+                                                    'm', 'lat-long')
+                        else:
+                            raise ValueError(f"Unknown coordinate system "
+                                             f"{coordinate_system} provided.")
+
+                elif isinstance(radius, float):
+                    # Only one value for the radius was given, replicate
+                    _radius = np.ones(self.t.shape) * radius
+                elif isinstance(radius, np.ndarray):
+                    # The array passed is the array to use
+                    _radius = radius
+                else:
+                    raise ValueError("Invalid input argument for radius.  Should "
+                                     "be a float or None")
+
+                # Draw first and last points
+                ax.add_patch(plt.Circle(
+                    (x[0], y[0]), _radius[0], color=fill_color))
+                if t.shape[0] > 1:
+                    ax.add_patch(plt.Circle((x[-1], y[-1]), _radius[-1],
+                                            color=fill_color))
+
+                # Draw path around inner points
+                if t.shape[0] > 2:
+                    for i in range(t.shape[0] - 1):
+                        p = np.array([(x[i], y[i]), (x[i + 1], y[i + 1])])
+                        v = p[1] - p[0]
+                        if abs(v[1]) > 1e-16:
+                            n = np.array([1, -v[0] / v[1]], dtype=float)
+                        elif abs(v[0]) > 1e-16:
+                            n = np.array([-v[1] / v[0], 1], dtype=float)
+                        else:
+                            continue
+                            # raise Exception("Zero-vector given")
+                        n /= np.linalg.norm(n)
+                        n *= _radius[i]
+
+                        ax.fill((p[0, 0] + n[0], p[0, 0] - n[0],
+                                 p[1, 0] - n[0],
+                                 p[1, 0] + n[0]),
+                                (p[0, 1] + n[1], p[0, 1] - n[1],
+                                 p[1, 1] - n[1],
+                                 p[1, 1] + n[1]),
+                                facecolor=fill_color, alpha=fill_alpha)
+                        ax.add_patch(plt.Circle((p[1][0], p[1, 1]), _radius[i],
+                                                color=fill_color, alpha=fill_alpha))
+
     # =========================================================================
     # Other Useful Routines
-
     def category(self, categorization="NHC", cat_names=False):
         r"""Categorizes storm based on relevant storm data
 
@@ -1718,60 +1848,50 @@ class Storm(object):
         if categorization.upper() == "BEAUFORT":
             # Beaufort scale below uses knots
             speeds = units.convert(self.max_wind_speed, "m/s", "knots")
-            category = (
-                np.zeros(speeds.shape)
-                + (speeds >= 1) * (speeds < 4) * 1
-                + (speeds >= 4) * (speeds < 7) * 2
-                + (speeds >= 7) * (speeds < 11) * 3
-                + (speeds >= 11) * (speeds < 17) * 4
-                + (speeds >= 17) * (speeds < 22) * 5
-                + (speeds >= 22) * (speeds < 28) * 6
-                + (speeds >= 28) * (speeds < 34) * 7
-                + (speeds >= 34) * (speeds < 41) * 8
-                + (speeds >= 41) * (speeds < 48) * 9
-                + (speeds >= 48) * (speeds < 56) * 10
-                + (speeds >= 56) * (speeds < 64) * 11
-                + (speeds >= 64) * 12
-            )
-            cat_map = {
-                0: "Calm",
-                1: "Light air",
-                2: "Light breeze",
-                3: "Gentle breeze",
-                4: "Moderate breeze",
-                5: "Fresh breeze",
-                6: "Strong breeze",
-                7: "High wind",
-                8: "Gale",
-                9: "Strong gale",
-                10: "Whole gale",
-                11: "Violent storm",
-                12: "Hurricane",
-            }
+            category = (np.zeros(speeds.shape) +
+                        (speeds >= 1) * (speeds < 4) * 1 +
+                        (speeds >= 4) * (speeds < 7) * 2 +
+                        (speeds >= 7) * (speeds < 11) * 3 +
+                        (speeds >= 11) * (speeds < 17) * 4 +
+                        (speeds >= 17) * (speeds < 22) * 5 +
+                        (speeds >= 22) * (speeds < 28) * 6 +
+                        (speeds >= 28) * (speeds < 34) * 7 +
+                        (speeds >= 34) * (speeds < 41) * 8 +
+                        (speeds >= 41) * (speeds < 48) * 9 +
+                        (speeds >= 48) * (speeds < 56) * 10 +
+                        (speeds >= 56) * (speeds < 64) * 11 +
+                        (speeds >= 64) * 12)
+            cat_map = {0: "Calm",
+                       1: "Light air",
+                       2: "Light breeze",
+                       3: "Gentle breeze",
+                       4: "Moderate breeze",
+                       5: "Fresh breeze",
+                       6: "Strong breeze",
+                       7: "High wind",
+                       8: "Gale",
+                       9: "Strong gale",
+                       10: "Whole gale",
+                       11: "Violent storm",
+                       12: "Hurricane"}
 
         elif categorization.upper() == "NHC":
-            # TODO:  Change these to m/s (knots are how these are defined).
-            # Definitely not in the correct format now
-            # TODO:  Add TD and TS designations
+            # NHC uses knots
             speeds = units.convert(self.max_wind_speed, "m/s", "knots")
-            category = (
-                np.zeros(speeds.shape)
-                + (speeds < 30) * -1
-                + (speeds >= 64) * (speeds < 83) * 1
-                + (speeds >= 83) * (speeds < 96) * 2
-                + (speeds >= 96) * (speeds < 113) * 3
-                + (speeds >= 113) * (speeds < 135) * 4
-                + (speeds >= 135) * 5
-            )
-            cat_map = {
-                -1: "Tropical Depression",
-                0: "Tropical Storm",
-                1: "Category 1 Hurricane",
-                2: "Category 2 Hurricane",
-                3: "Category 3 Hurricane",
-                4: "Category 4 Hurricane",
-                5: "Category 5 Hurricane",
-            }
+            category = (np.zeros(speeds.shape) +
+                        (speeds < 30) * -1 +
+                        (speeds >= 64) * (speeds < 83) * 1 +
+                        (speeds >= 83) * (speeds < 96) * 2 +
+                        (speeds >= 96) * (speeds < 113) * 3 +
+                        (speeds >= 113) * (speeds < 135) * 4 +
+                        (speeds >= 135) * 5)
+            cat_map = {-1: "Tropical Depression",
+                       0: "Tropical Storm",
+                       1: "Category 1 Hurricane",
+                       2: "Category 2 Hurricane",
+                       3: "Category 3 Hurricane",
+                       4: "Category 4 Hurricane",
+                       5: "Category 5 Hurricane"}
 
         elif categorization.upper() == "JTWC":
             raise NotImplementedError("JTWC categorization not implemented.")
@@ -1868,7 +1988,7 @@ def fill_rad_w_other_source(t, storm_targ, storm_fill, var, interp_kwargs={}):
     *storm_radius_fill* when calling *write_geoclaw*.
 
     :Input:
-    - *t* (:py:class:`datetime.datetime`) the time corresponding to
+    - *t* (np.datetime64) the time corresponding to
         a missing value of *max_wind_radius* or *storm_radius*
     - *storm_targ* (:py:class:`clawpack.geoclaw.storm.Storm`) storm
         that has missing values you want to fill
@@ -1905,17 +2025,18 @@ def fill_rad_w_other_source(t, storm_targ, storm_fill, var, interp_kwargs={}):
         print("fill_rad_w_other_source currently requires xarray to work.")
         raise e
 
-    fill_da = xr.DataArray(
-        getattr(storm_fill, var), coords={"t": getattr(storm_fill, "t")}, dims=("t",)
-    )
+    fill_da = xr.DataArray(getattr(storm_fill, var),
+                           coords={'t': getattr(storm_fill, 't')},
+                           dims=('t',))
 
     # convert -1 to nan
     fill_da = fill_da.where(fill_da > 0, np.nan)
 
     # if not all missing, try using storm_fill to fill
     if fill_da.notnull().any():
+
         # remove duplicates
-        fill_da = fill_da.groupby("t").first()
+        fill_da = fill_da.groupby('t').first()
 
         # remove NaNs
         fill_da = fill_da.dropna("t")
@@ -1929,9 +2050,9 @@ def fill_rad_w_other_source(t, storm_targ, storm_fill, var, interp_kwargs={}):
             return fill_interp
 
     # next, try just interpolating other ibtracs values
-    targ_da = xr.DataArray(
-        getattr(storm_targ, var), coords={"t": getattr(storm_targ, "t")}, dims=("t",)
-    )
+    targ_da = xr.DataArray(getattr(storm_targ, var),
+                           coords={'t': getattr(storm_targ, 't')},
+                           dims=('t',))
     targ_da = targ_da.where(targ_da > 0, np.nan)
     if targ_da.notnull().any():
         targ_da = targ_da.groupby("t").first()
@@ -1977,53 +2098,147 @@ def make_multi_structure(path):
                     fileWrite.writelines(line)
                 else:
                     fileWrite.close()
-                    stormDict[curTime].update(
-                        {
-                            curTrack: Storm(
-                                path=os.path.join(
-                                    os.path.expandvars(os.getcwd()),
-                                    "Clipped_ATCFs",
-                                    curTime,
-                                    curTrack,
-                                ),
-                                file_format="ATCF",
-                            )
-                        }
-                    )
+                    stormDict[curTime].update({curTrack: Storm(path=os.path.join(os.path.expandvars(
+                        os.getcwd()), "Clipped_ATCFs", curTime, curTrack), file_format="ATCF")})
                     curTrack = lineArr[4]
-                    fileWrite = open("Clipped_ATCFs/" + curTime + "/" + curTrack, "w")
+                    fileWrite = open("Clipped_ATCFs/" +
+                                     curTime + "/" + curTrack, 'w')
                     fileWrite.writelines(line)
             else:
                 if curTime != "test":
                     fileWrite.close()
-                    stormDict[curTime].update(
-                        {
-                            curTrack: Storm(
-                                path=os.path.join(
-                                    os.path.expandvars(os.getcwd()),
-                                    "Clipped_ATCFs",
-                                    curTime,
-                                    curTrack,
-                                ),
-                                file_format="ATCF",
-                            )
-                        }
-                    )
+                    stormDict[curTime].update({curTrack: Storm(path=os.path.join(os.path.expandvars(
+                        os.getcwd()), "Clipped_ATCFs", curTime, curTrack), file_format="ATCF")})
                 curTime = lineArr[2]
                 curTrack = lineArr[4]
                 stormDict[curTime] = {}
                 os.mkdir("Clipped_ATCFs/" + curTime)
-                fileWrite = open("Clipped_ATCFs/" + curTime + "/" + curTrack, "w")
+                fileWrite = open("Clipped_ATCFs/" +
+                                 curTime + "/" + curTrack, 'w')
                 fileWrite.writelines(line)
     return stormDict
 
 
-def _set_engine_kwargs(path):
-    if isinstance(path, FSMap) or Path(path).suffix == ".zarr":
-        return "zarr", {"consolidated": True}
-    elif Path(path).suffix == ".nc":
-        return "netcdf4", {}
-    raise ValueError(f"Cannot open {Path(path).suffix} file")
+class DataDerivedStorms(object):
+    """
+    Storm object to accommodate storms in the Oceanweather Inc. format.
+    The data is structured as wind and pressure files that contain the wind
+    and pressure fields for time steps every XX minutes.
+
+    This storm object is initialized to read in both files and parse the data
+    into a netcdf file for reading with the data_storm_module.f90
+
+      :Attributes:
+     - *t* (list(np.datetime64)) Contains the time at which each entry of
+       the other arrays are at.  These are expected to be *datetime* objects.
+       Note that when written some formats require a *time_offset* to be set.
+     - *wind_speed* (ndarray(:, :)) Wind speeds defined in every record, such
+       as 34kt, 50kt, 64kt, etc and their radii. Default units are meters/second
+       and meters.
+     - *pressure* (ndarray(:,,:)) Pressure arrays every 15 minutes for the region
+        of interest, Default units are bars
+     - *u* (ndarray(:,:)) Wind velocity in the x direction in arrays for every 15 minutes
+        Default units are m/s
+     - *v* (ndarray(:,:)) Wind velocity in the y direction in arrays for every 15 minutes
+        Default units are m/s
+    - *latitude* (ndarray(:,:)) Array of latitudes for the wind and pressure arrays
+    - *longitude* (ndarray(:,:)) Array of longitudes for the wind and pressure arrays
+
+    :Initialization:
+     1. Read in existing wind and pressure files at *path*.
+     2. Construct a data derived storm object and parse data into attributes using
+        data_storms.py for the parsing functions
+
+    :Input:
+     - *path* (string) Path to file to be read in if requested.
+     - *kwargs* (dict) Other key-word arguments are passed to the appropriate
+       read routine.
+    """
+
+    def __init__(self, path, wind_file_ext='WND', pressure_file_ext='PRE'):
+        """
+        This routine creates the DataStorm object, and loads the data from
+        file using data_storms.py
+
+        :param path: location and name of wind and pressure files
+        :param wind_file_ext: Extension for the wind file, either 'WND' or 'WIN'
+        :param pressure_file_ext: Extension for the pressure file "PRE" or 'pre'
+        """
+        # Set wind and pressure file extensions
+        self.wind_ext = wind_file_ext
+        self.pres_ext = pressure_file_ext
+
+        # Read in wind and pressure data from original file formats
+        self.wind_data = data_storms.read_oceanweather(path, self.wind_ext)
+        self.pressure_data = data_storms.read_oceanweather(path, self.pres_ext)
+
+        # Initialize instance variables
+        self.t = None # Placeholder for array of time steps included in original data
+        self.lat = None # Placeholder for array of latitudes of the storm domain
+        self.lon = None # Placeholder for array of longitudes of the storm domain
+        self.u = [] # Placeholder for wind data in x direction
+        self.v = [] # Placeholder for wind data in y direction
+        self.pressure = [] # Placeholder for pressure data
+        self.wind_speed = [] # Placeholder for wind speed
+
+    def parse_data(self,landfall_time):
+        
+        import numpy as np
+        """
+        This method processes the wind and pressure data matrices, extracts the data for each time step,
+        and stores the processed data in instance variables.
+
+        It uses functions from the data_storms module to extract time steps, latitude, and longitude arrays,
+        as well as to process wind and pressure matrices into 2D arrays.
+
+        The processed data is then appended to instance variables u, v, pressure, and wind_speed.
+    
+        :return: None
+        """
+        # Extract time and coordinate arrays
+        self.t = data_storms.time_steps(self.wind_data, landfall_time)
+        self.lat, self.lon = data_storms.get_coordinate_arrays(self.wind_data[0])
+
+        # Iterate over all data, each index = an individual time step
+        for winds, pressures in zip(self.wind_data, self.pressure_data):
+            # Process the wind and pressure matrix per time index into 2d arrays
+            u = data_storms.process_data(winds, start_idx=0)
+            v = data_storms.process_data(winds, start_idx=(winds.iLat * winds.iLong))
+            p = data_storms.process_data(pressures, start_idx=0)
+            # Put into lists for easy writing to a xarray dataarray
+            self.u.append(u)
+            self.pressure.append(p)
+            self.v.append(v)
+            # Calculate wind speed from each directional component
+            self.wind_speed.append(np.sqrt(u**2 + v**2))
+
+
+    def write_data_derived(self, filename):
+        """
+        This method writes the derived wind, pressure, and wind speed data to a NetCDF file using xarray.
+
+        :param filename: The name of the output NetCDF file (without the extension).
+        :return: None
+        """
+        import xarray as xr
+
+        windx = numpy.array(self.u)
+        windy = numpy.array(self.v)
+        pressure = numpy.array(self.pressure)*100 # Convert to mbars
+        speed = numpy.array(self.wind_speed)
+        time = numpy.array(self.t)
+
+        # Create a dataset with xarray with derived data
+        ds = xr.Dataset(data_vars={'u': (('time', 'lat', 'lon'), windx),
+                                   'v': (('time', 'lat', 'lon'), windy),
+                                   'speed': (('time', 'lat', 'lon'), speed),
+                                   'pressure': (('time', 'lat', 'lon'), pressure),
+                                   },
+                        coords={'lat': self.lat,
+                                'lon': self.lon,
+                                'time': time})
+        # Save the dataset to netcdf format
+        ds.to_netcdf(filename + '.nc')
 
 
 if __name__ == "__main__":
