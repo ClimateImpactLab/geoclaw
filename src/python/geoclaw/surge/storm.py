@@ -36,7 +36,6 @@ workflow in a `setrun.py` file would do the following:
 """
 
 import sys
-# import os
 import argparse
 import datetime
 import warnings
@@ -44,6 +43,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import xarray as xr
 
 import clawpack.geoclaw.units as units
 import clawpack.clawutil.data as clawdata
@@ -600,13 +600,6 @@ class Storm(object):
              value error is risen.
         """
 
-        # imports that you don't need for other read functions
-        try:
-            import xarray as xr
-        except ImportError as e:
-            print("IBTrACS currently requires xarray to work.")
-            raise e
-
         # only allow one method for specifying storms
         if (sid is not None) and ((storm_name is not None) or (year is not None)):
             raise ValueError(
@@ -771,10 +764,7 @@ class Storm(object):
              value error is risen.
         """
 
-        import xarray as xr
-
-        engine, backend_kwargs = _set_engine_kwargs(path)
-        with xr.open_dataset(path, engine=engine, backend_kwargs=backend_kwargs) as ds:
+        with xr.open_dataset(path) as ds:
             # match on sid
             ds = ds.sel(storm=ds.sid == sid).load().squeeze()
 
@@ -2019,12 +2009,6 @@ def fill_rad_w_other_source(t, storm_targ, storm_fill, var, interp_kwargs={}):
         ...     max_wind_radius_fill = fill_mwr)
     """
 
-    try:
-        import xarray as xr
-    except ImportError as e:
-        print("fill_rad_w_other_source currently requires xarray to work.")
-        raise e
-
     fill_da = xr.DataArray(getattr(storm_fill, var),
                            coords={'t': getattr(storm_fill, 't')},
                            dims=('t',))
@@ -2220,7 +2204,6 @@ class DataDerivedStorms(object):
         :param filename: The name of the output NetCDF file (without the extension).
         :return: None
         """
-        import xarray as xr
 
         windx = numpy.array(self.u)
         windy = numpy.array(self.v)
