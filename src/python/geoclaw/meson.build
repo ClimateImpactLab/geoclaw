@@ -36,6 +36,7 @@ python_sources = {
     'plot.py',
     'quality.py',
     'storm.py',
+    'data_storms.py',
   ],
 }
 
