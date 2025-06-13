@@ -42,12 +42,12 @@ import sys
 import warnings
 from pathlib import Path
 
+import clawpack.geoclaw.surge.data_storms as data_storms
 import clawpack.geoclaw.units as units
 import numpy
 import numpy as np
 import pandas as pd
 import xarray as xr
-from clawpack.geoclaw.surge import data_storms
 
 # =============================================================================
 #  Common acronyms across formats
