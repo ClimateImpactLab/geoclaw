@@ -4,16 +4,15 @@ Regression tests for Isaac storm surge
 Primarily tests all of the input formats GeoClaw handles
 """
 
-from pathlib import Path
-import os
 import gzip
+import os
 import unittest
-import pytest
+from pathlib import Path
 
-import numpy as np
-
-import clawpack.geoclaw.test as test
 import clawpack.clawutil as clawutil
+import clawpack.geoclaw.test as test
+import numpy as np
+import pytest
 from clawpack.geoclaw.surge.storm import Storm
 
 days2seconds = lambda t: t * 60.0**2 * 24.0
