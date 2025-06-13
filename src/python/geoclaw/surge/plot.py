@@ -11,21 +11,20 @@ Plotting routines for storm surge simulations with GeoClaw
 #                     http://www.opensource.org/licenses/
 # ==============================================================================
 
-from __future__ import absolute_import
-from __future__ import print_function
+from __future__ import absolute_import, print_function
 
 import warnings
 
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.colors as colors
-import matplotlib.lines as mlines
-import pandas
-
+import clawpack.geoclaw.data as geodata
 import clawpack.visclaw.colormaps as colormaps
 import clawpack.visclaw.gaugetools as gaugetools
 import clawpack.visclaw.geoplot as geoplot
-import clawpack.geoclaw.data as geodata
+import matplotlib.colors as colors
+import matplotlib.lines as mlines
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas
+
 # import clawpack.geoclaw.surge.storm
 
 # TODO:  Assign these based on data files
@@ -63,7 +62,6 @@ class track_data(object):
 
     def get_track(self, frame):
         """Return storm location for frame requested"""
-
         # If data was not load successfully return None
         if self._data is None or len(self._data.shape) < 2:
             return None, None, None
@@ -74,7 +72,7 @@ class track_data(object):
 
             # Check to make sure that this fixed the problem
             if self._data.shape[0] < frame + 1:
-                warnings.warn(f" *** WARNING *** Could not find track data",
+                warnings.warn(" *** WARNING *** Could not find track data",
                                " for frame {frame}.")
                 return None, None, None
 
@@ -266,7 +264,6 @@ def add_surface_elevation(
     plotaxes, plot_type="pcolor", bounds=None, contours=None, shrink=1.0
 ):
     """Add plotitem representing the sea surface."""
-
     if plot_type == "pcolor" or plot_type == "imshow":
         plotitem = plotaxes.new_plotitem(name="surface", plot_type="2d_pcolor")
         plotitem.plot_var = geoplot.surface_or_depth
@@ -379,7 +376,6 @@ def add_speed(plotaxes, plot_type="pcolor", bounds=None, contours=None, shrink=1
 
 def add_friction(plotaxes, bounds=None, plot_type="pcolor", shrink=1.0):
     """Add plotitem for the friction field"""
-
     if plot_type == "pcolor" or plot_type == "imshow":
         plotitem = plotaxes.new_plotitem(name="friction", plot_type="2d_pcolor")
         plotitem.plot_var = friction
@@ -397,7 +393,6 @@ def add_friction(plotaxes, bounds=None, plot_type="pcolor", shrink=1.0):
 
 def add_wind(plotaxes, bounds=None, plot_type="pcolor", shrink=1.0):
     """Add plotitem for the wind speed."""
-
     if plot_type == "pcolor" or plot_type == "imshow":
         plotitem = plotaxes.new_plotitem(name="wind", plot_type="2d_pcolor")
         plotitem.plot_var = wind_speed
@@ -421,7 +416,6 @@ def add_wind(plotaxes, bounds=None, plot_type="pcolor", shrink=1.0):
 
 def add_pressure(plotaxes, bounds=None, plot_type="pcolor", shrink=1.0):
     """Add plotitem for the pressure field."""
-
     if plot_type == "pcolor" or plot_type == "imshow":
         plotitem = plotaxes.new_plotitem(name="pressure", plot_type="2d_pcolor")
         plotitem.plot_var = pressure
@@ -441,7 +435,6 @@ def add_pressure(plotaxes, bounds=None, plot_type="pcolor", shrink=1.0):
 
 def add_land(plotaxes, plot_type='pcolor', bounds=[0, 50]):
     """Add plotitem for land"""
-
     if plot_type == "pcolor":
         plotitem = plotaxes.new_plotitem(name="land", plot_type="2d_pcolor")
         plotitem.show = True
@@ -467,7 +460,6 @@ def add_land(plotaxes, plot_type='pcolor', bounds=[0, 50]):
 
 def add_bathy_contours(plotaxes, contour_levels=None, color="k"):
     """Add plotitem to plot contours of the topography"""
-
     plotitem = plotaxes.new_plotitem(name="bathy", plot_type="2d_contour")
     plotitem.plot_var = geoplot.topo
     if contour_levels is None:

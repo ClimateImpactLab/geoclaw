@@ -28,9 +28,6 @@ variables properly, see:
 The file setenv.sh illustrates how you might set some environment
 variables for the bash shell.
 
-The file setenv.sh illustrates how you might set some environment
-variables for the bash shell.
-
 A file petscMPIoptions is also required to set some PETSc parameters for the
 iterative method used to solve the large sparse linear systems that arise at 
 each refinement level when the Boussinesq equations are solved. 

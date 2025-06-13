@@ -35,18 +35,19 @@ workflow in a `setrun.py` file would do the following:
     - OWI (data-derived)
 """
 
-import sys
 import argparse
 import datetime
+import os
+import sys
 import warnings
 from pathlib import Path
 
+import clawpack.geoclaw.units as units
+import numpy
 import numpy as np
 import pandas as pd
 import xarray as xr
-
-import clawpack.geoclaw.units as units
-import clawpack.clawutil.data as clawdata
+from clawpack.geoclaw.surge import data_storms
 
 # =============================================================================
 #  Common acronyms across formats
@@ -99,16 +100,14 @@ TC_designations = {
 
 # HURDAT special designations
 # see http://www.aoml.noaa.gov/hrd/data_sub/newHURDAT.html
-hurdat_special_entries = {
-    "L": "landfall",
-    "W": "max wind",
-    "P": "min pressure",
-    "I": "max intensity",
-    "C": "closest approach",
-    "S": "status change",
-    "G": "genesis",
-    "T": "additional track point",
-}
+hurdat_special_entries = {"L": "landfall",
+                          "W": "max wind",
+                          "P": "min pressure",
+                          "I": "max intensity",
+                          "C": "closest approach",
+                          "S": "status change",
+                          "G": "genesis",
+                          "T": "additional track point"}
 
 # Warning for formats that have yet to have a default way to determine crticial
 # radii from the input data
@@ -203,7 +202,6 @@ class Storm(object):
 
         See :class:`Storm` for more info.
         """
-
         # Time offsets are usually set to landfall but could be any time point
         # and are not required
         self.time_offset = None
@@ -280,7 +278,6 @@ class Storm(object):
          - *ValueError* If the *file_format* requested does not match any of
            the available supported formats a *ValueError* is raised.
         """
-
         # If a path is not provided then we can try and find the relevant
         # database and download it
         if path is None:
@@ -315,7 +312,6 @@ class Storm(object):
          - *path* (string) Path to the file to be read.
          - *verbose* (bool) Output more info regarding reading.
         """
-
         # Attempt to get name from file if is follows the convention name.storm
         if path.suffix == ".storm":
             self.name = path.name
@@ -356,7 +352,6 @@ class Storm(object):
          - *path* (string) Path to the file to be read.
          - *verbose* (bool) Output more info regarding reading.
         """
-
         # See here for the ATCF format documentation:
         #   https://www.nrlmry.navy.mil/atcf_web/docs/database/new/abdeck.txt
 
@@ -486,7 +481,6 @@ class Storm(object):
            storm or they are not provided when *single_storm == False* then a
            value error is risen.
         """
-
         with open(path, "r") as hurdat_file:
             # Extract header
             data = [value.strip() for value in hurdat_file.readline().split(",")]
@@ -599,7 +593,6 @@ class Storm(object):
          - *ValueError* If the method cannot find the matching storm then a
              value error is risen.
         """
-
         # only allow one method for specifying storms
         if (sid is not None) and ((storm_name is not None) or (year is not None)):
             raise ValueError(
@@ -763,7 +756,6 @@ class Storm(object):
          - *ValueError* If the method cannot find the matching storm then a
              value error is risen.
         """
-
         with xr.open_dataset(path) as ds:
             # match on sid
             ds = ds.sel(storm=ds.sid == sid).load().squeeze()
@@ -901,7 +893,6 @@ class Storm(object):
         - KeyError if provided storm name is not found in
         given file (assumes path is correct)
         """
-
         with xr.open_zarr(path, drop_variables=["time"], chunks=None) as ds:
             try:
                 storm = ds.sel(storm=storm_index, drop=True)
@@ -983,7 +974,6 @@ class Storm(object):
            storm or they are not provided when *single_storm == False* then a
            value error is risen.
         """
-
         data_block = []
         with open(path, "r") as JMA_file:
             # Extract header
@@ -1055,7 +1045,6 @@ class Storm(object):
          - *verbose* (bool) Output more info regarding reading.
 
         """
-
         # read in TCVitals_file
         data_block = []
         with open(path, "r") as TCVitals_file:
@@ -1119,7 +1108,6 @@ class Storm(object):
          - *path* (string) Path to the file to be read.
          - *verbose* (bool) Output more info regarding reading.
         """
-
         raise NotImplementedError("HWRF reading of the information file is ",
                                   " not implemented.")
 
@@ -1133,7 +1121,6 @@ class Storm(object):
          - *path* (string) Path to the file to be read.
          - *verbose* (bool) Output more info regarding reading.
         """
-
         with path.open() as data_file:
             data_file.readline()
             self.time_offset = np.datetime64(data_file.readline()[:19])
@@ -1178,7 +1165,6 @@ class Storm(object):
          - *ValueError* If the *file_format* requested does not match any of
            the available supported formats a *ValueError* is raised.
         """
-
         if file_format.lower() not in self._supported_formats.keys():
             raise ValueError("File format %s not available." % file_format)
 
@@ -1208,7 +1194,6 @@ class Storm(object):
             default function is for `storm_radius`, which sets the value to 
             500 km.
         """
-
         # If a filling function is not provided we will provide some defaults
         fill_dict.update({"storm_radius": lambda t, storm: 500e3})
         # Handle older interface that had specific fill functions
@@ -1458,7 +1443,6 @@ class Storm(object):
          - *path* (string) Path to the file to be written.
          - *verbose* (bool) Print out additional information when writing.
         """
-
         raise NotImplementedError(
             (
                 "Writing in TCVITALS files is not",
@@ -1482,7 +1466,6 @@ class Storm(object):
         fill_color="red",
     ):
         """TO DO:  Write doc-string"""
-
         import matplotlib.pyplot as plt
 
         if isinstance(track_style, str):
@@ -1614,8 +1597,7 @@ class Storm(object):
         :Input:
          - *path* (string) Path to the file to be written.
          - *verbose* (bool) Print out additional information when writing.
-         """
-        
+        """
         raise NotImplementedError("HWRF formatted info files cannot be ",
                                   "written out yet.")
 
@@ -1625,8 +1607,7 @@ class Storm(object):
         :Input:
          - *path* (string) Path to the file to be written.
          - *verbose* (bool) Print out additional information when writing.
-         """
-
+        """
          # OWI file formats
         _data_file_format_mapping = {'ascii': 1, 'nws12': 1, 
                                      'netcdf': 2, 'nws13': 2}
@@ -1643,10 +1624,10 @@ class Storm(object):
                         file_format = _data_file_format_mapping[
                                                   self.data_file_format.lower()]
                     else:
-                        raise TypeError(f"Unknown storm data file format type" +
+                        raise TypeError("Unknown storm data file format type" +
                                         f" '{self.data_file_format}' provided.")
                 else:
-                    raise TypeError(f"Unknown storm data file format type" +
+                    raise TypeError("Unknown storm data file format type" +
                                     f" '{self.data_file_format}' provided.")
 
                 # Write out data
@@ -1663,7 +1644,7 @@ class Storm(object):
                 data_file.write("\n")
 
                 # File format specific values
-                data_file.write(f"# Data Information\n")
+                data_file.write("# Data Information\n")
                 if file_format ==  1:
                     # :TODO: Modify number of regions to be indpendent of file_paths
                     if len(self.file_paths)%2 != 0:
@@ -1678,7 +1659,7 @@ class Storm(object):
                         data_file.write(f"{str(self.file_paths[n * 2 + 1]).ljust(20)}\n")
                 elif file_format == 2:
                     if len(self.file_paths) != 1:
-                        raise ValueError(f"Expected 1 file for format " + 
+                        raise ValueError("Expected 1 file for format " + 
                                          f"{file_format} rather than " +
                                          f"{len(self.file_paths)}")
                     data_file.write(f"{self.file_paths[0]}\n")
@@ -1717,7 +1698,207 @@ class Storm(object):
          - *kwargs* All additional keyword arguments are passed to the plotting
             command for the track.
         """
+        import matplotlib.pyplot as plt
 
+        # Extract information for plotting the track/swath
+        t = self.t
+        x = self.eye_location[:, 0]
+        y = self.eye_location[:, 1]
+        if t_range is not None:
+            t = np.ma.masked_outside(t, t_range[0], t_range[1])
+            x = np.ma.array(x, mask=t.mask).compressed()
+            y = np.ma.array(y, mask=t.mask).compressed()
+            t = t.compressed()
+
+        # Plot track
+        if categorization is None:
+            # Plot the track as a simple line with the given style
+            ax.plot(x, y, *args, **kwargs)
+        else:
+            if self.max_wind_speed is None:
+                raise ValueError("Maximum wind speed not available so "
+                                 "plotting catgories is not available.")
+
+            # Plot the track using the colors provided in the dictionary
+            cat_color_defaults = {5: 'red', 4: 'yellow', 3: 'orange', 
+                                  2: 'green', 1: 'blue', 0: 'gray', 
+                                  -1: 'lightgray'}
+            colors = [cat_colors.get(category, cat_color_defaults[category])
+                      for category in self.category(categorization=categorization)]
+            # Remove color from kwargs if they were given
+            kwargs.pop('color', None)
+            for i in range(t.shape[0] - 1):
+                ax.plot(x[i:i+2], y[i:i+2], color=colors[i], **kwargs)
+
+        # Plot swath
+        if plot_swath:
+            if (isinstance(radius, float) or isinstance(radius, np.ndarray)
+                    or radius is None):
+
+                if radius is None:
+                    # Default behavior
+                    if self.storm_radius is None:
+                        raise ValueError("Cannot use storm radius for plotting "
+                                         "the swath as the data is not available.")
+                    else:
+                        if coordinate_system == 1:
+                            _radius = self.storm_radius
+                        elif coordinate_system == 2:
+                            _radius = units.convert(self.storm_radius,
+                                                    'm', 'lat-long')
+                        else:
+                            raise ValueError(f"Unknown coordinate system "
+                                             f"{coordinate_system} provided.")
+
+                elif isinstance(radius, float):
+                    # Only one value for the radius was given, replicate
+                    _radius = np.ones(self.t.shape) * radius
+                elif isinstance(radius, np.ndarray):
+                    # The array passed is the array to use
+                    _radius = radius
+                else:
+                    raise ValueError("Invalid input argument for radius.  Should "
+                                     "be a float or None")
+
+                # Draw first and last points
+                ax.add_patch(plt.Circle(
+                    (x[0], y[0]), _radius[0], color=fill_color))
+                if t.shape[0] > 1:
+                    ax.add_patch(plt.Circle((x[-1], y[-1]), _radius[-1],
+                                            color=fill_color))
+
+                # Draw path around inner points
+                if t.shape[0] > 2:
+                    for i in range(t.shape[0] - 1):
+                        p = np.array([(x[i], y[i]), (x[i + 1], y[i + 1])])
+                        v = p[1] - p[0]
+                        if abs(v[1]) > 1e-16:
+                            n = np.array([1, -v[0] / v[1]], dtype=float)
+                        elif abs(v[0]) > 1e-16:
+                            n = np.array([-v[1] / v[0], 1], dtype=float)
+                        else:
+                            continue
+                            # raise Exception("Zero-vector given")
+                        n /= np.linalg.norm(n)
+                        n *= _radius[i]
+
+                        ax.fill((p[0, 0] + n[0], p[0, 0] - n[0],
+                                 p[1, 0] - n[0],
+                                 p[1, 0] + n[0]),
+                                (p[0, 1] + n[1], p[0, 1] - n[1],
+                                 p[1, 1] - n[1],
+                                 p[1, 1] + n[1]),
+                                facecolor=fill_color, alpha=fill_alpha)
+                        ax.add_patch(plt.Circle((p[1][0], p[1, 1]), _radius[i],
+                                                color=fill_color, alpha=fill_alpha))
+
+    def write_hwrf(self, path, verbose=False):
+        r"""Write out an TCVITALS formatted storm file
+
+        :Input:
+         - *path* (string) Path to the file to be written.
+         - *verbose* (bool) Print out additional information when writing.
+        """
+        raise NotImplementedError("HWRF formatted info files cannot be ",
+                                  "written out yet.")
+
+    def write_owi(self, path, verbose=False):
+        r"""Write out an OWI information formatted storm file
+
+        :Input:
+         - *path* (string) Path to the file to be written.
+         - *verbose* (bool) Print out additional information when writing.
+        """
+         # OWI file formats
+        _data_file_format_mapping = {'ascii': 1, 'nws12': 1, 
+                                     'netcdf': 2, 'nws13': 2}
+
+        try:
+            with path.open('w') as data_file:
+                # Write header
+                data_file.write("# OWI Data Decription - NWS12 and NWS13\n")
+                if isinstance(self.data_file_format, int):
+                    file_format = self.data_file_format
+                elif isinstance(self.data_file_format, str):
+                    if (self.data_file_format.lower() in 
+                                            _data_file_format_mapping.keys()):
+                        file_format = _data_file_format_mapping[
+                                                  self.data_file_format.lower()]
+                    else:
+                        raise TypeError("Unknown storm data file format type" +
+                                        f" '{self.data_file_format}' provided.")
+                else:
+                    raise TypeError("Unknown storm data file format type" +
+                                    f" '{self.data_file_format}' provided.")
+
+                # Write out data
+                # Time offset
+                self.time_offset = np.datetime64(self.time_offset)
+                if isinstance(self.time_offset, np.datetime64):
+                    t = np.datetime_as_string(self.time_offset, unit="s")
+                    data_file.write(f"{t.ljust(20)} # Time Offset\n")
+                else:
+                    raise ValueError("Time offset must be a datetime64 object.")
+
+                # File format
+                data_file.write(f"{str(file_format).ljust(20)} # File format\n")
+                data_file.write("\n")
+
+                # File format specific values
+                data_file.write("# Data Information\n")
+                if file_format ==  1:
+                    # :TODO: Modify number of regions to be indpendent of file_paths
+                    if len(self.file_paths)%2 != 0:
+                        raise ValueError("The number of files should be even, " + 
+                                         "one for pressure and wind, for each " +
+                                         "resolution provided.")
+                    num_regions = int(len(self.file_paths) / 2)
+                    data_file.write(f"{str(num_regions).ljust(20)}" + 
+                                     " # Number of regions\n")
+                    for n in range(int(len(self.file_paths) / 2)):
+                        data_file.write(f"{str(self.file_paths[n * 2]).ljust(20)}\n")
+                        data_file.write(f"{str(self.file_paths[n * 2 + 1]).ljust(20)}\n")
+                elif file_format == 2:
+                    if len(self.file_paths) != 1:
+                        raise ValueError("Expected 1 file for format " + 
+                                         f"{file_format} rather than " +
+                                         f"{len(self.file_paths)}")
+                    data_file.write(f"{self.file_paths[0]}\n")
+
+        except Exception as e:
+            # If an exception occurs clean up a partially generated file            
+            Path.unlink(path, missing_ok=True)
+            raise e
+
+
+    # ================
+    #  Track Plotting
+    # ================
+    def plot(self, ax, *args, t_range=None, categorization=None,
+                       cat_colors={}, plot_swath=False, radius=None, 
+                       coordinate_system=2, fill_alpha=0.25, fill_color='red',
+                       **kwargs):
+        """Plot this storm's track in the given axes object
+        
+        :Input:
+         - *ax* (matplotlib.pyplot.axes) Axes to plot into.
+         - *t_range* (list) Time range to plot the track for.  If None then use
+            entire range.  Default is None.
+         - *categorization* (str) Type of categorization to be used.  This is 
+            used to map to the keys in the cat_colors dictionary.  Default is 
+            None and will cause no categorization to occur.
+         - *cat_colors* (dict) Color mapping between numeric categorization and
+            colors to be plotted for the track.
+         - *plot_swath* (bool) Plot a swath around the track using one of the 
+            methods determined by what radius information is provided.  Default 
+            is False.
+         - *radius* (None or float or numpy.ndarray)
+         - *coordinate_system* (int)
+         - *fill_alpha* (float)
+         - *fill_color* (color)
+         - *kwargs* All additional keyword arguments are passed to the plotting
+            command for the track.
+        """
         import matplotlib.pyplot as plt
 
         # Extract information for plotting the track/swath
@@ -1830,7 +2011,6 @@ class Storm(object):
            *string*.  This is only returned if *car_names = True*.
 
         """
-
         # TODO:  Need to standardize on 1-minute (almost never available) or
         # 10-minute (widely available) - see
         # https://en.wikipedia.org/wiki/Tropical_cyclone#Major_basins_and_related_warning_centers
@@ -2008,7 +2188,6 @@ def fill_rad_w_other_source(t, storm_targ, storm_fill, var, interp_kwargs={}):
         ...     path = 'out_path.storm',
         ...     max_wind_radius_fill = fill_mwr)
     """
-
     fill_da = xr.DataArray(getattr(storm_fill, var),
                            coords={'t': getattr(storm_fill, 't')},
                            dims=('t',))
@@ -2204,6 +2383,7 @@ class DataDerivedStorms(object):
         :param filename: The name of the output NetCDF file (without the extension).
         :return: None
         """
+        import xarray as xr
 
         windx = numpy.array(self.u)
         windy = numpy.array(self.v)
