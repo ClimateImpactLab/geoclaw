@@ -42,8 +42,13 @@ workflow in a `setrun.py` file would do the following:
 
 import sys
 import argparse
+import datetime
+import warnings
 
 import numpy as np
+import pandas as pd
+
+import clawpack.geoclaw.units as units
 
 # Re-exported for backwards compatibility of the historical import paths and
 # the module-level public surface.
@@ -148,7 +153,9 @@ class Storm(object):
                           "tcvitals": ["TC-Vitals", "http://www.emc.ncep.noaa.gov/mmb/data_processing/tcvitals_description.htm"],
                           "netcdf": ["NetCDF", None],
                           "owi": ['OWI', "http://www.oceanweather.com"],
-                          "data": ["GeoClaw Data", "http://www.clawpack.org/storms"]}
+                          "data": ["GeoClaw Data", "http://www.clawpack.org/storms"],
+                          "ibtracs_processed": ["IBTrACS", "Processed in CIL pipeline"],
+                          "emanuel": ["Kerry Emanuel", "Email Correspondence"]}
 
     def __init__(self, path=None, file_format="ATCF", **kwargs):
         r"""Storm Initiatlization Routine
@@ -332,6 +339,228 @@ class Storm(object):
         r"""Read in a data-derived (gridded) storm file (delegates to
         :meth:`GriddedMetForcing.read_data`)."""
         self._adopt_gridded(GriddedMetForcing.read_data(path, **kwargs))
+
+    # ==========================================================================
+    # CIL readers, ported from the old CIL surge/storm.py (see CIL_CHANGELOG.md):
+    # our processed IBTrACS and our processed version of Kerry Emanuel's tracks.
+    # Unlike the upstream readers above, they set the Storm attributes directly;
+    # those attributes forward to ``self.track``.
+    def read_ibtracs_processed(self, path, sid, start_date=None):
+        r"""Read in CIL-processed IBTrACS formatted storm file
+
+        This reads in a CIL-processed version of the IBTrACS v4 data.
+
+        :Input:
+         - *path* (string) Path to the file to be read.
+         - *sid* (string, optional) IBTrACS-supplied unique track identifier.
+
+        :Raises:
+         - *ValueError* If the method cannot find the matching storm then a
+             value error is risen.
+        """
+        import xarray as xr
+
+        with xr.open_dataset(path) as ds:
+            # match on sid
+            ds = ds.sel(storm=ds.sid == sid).load().squeeze()
+
+            # occurs if we have 0 or >1 matching storms
+            if "storm" in ds.dims:
+                if ds.storm.shape[0] == 0:
+                    raise ValueError("SID not found in provided file")
+                else:
+                    # see if a date was provided for multiple unnamed storms
+                    assert start_date is not None, ValueError(
+                        "Multiple storms identified and no start_date specified."
+                    )
+
+                    start_times = ds.time.isel(time=0)
+                    start_date = np.datetime64(start_date)
+
+                    # find storm with start date closest to provided
+                    storm_ix = abs(start_times - start_date).argmin()
+                    ds = ds.isel(storm=storm_ix).squeeze()
+                    assert "storm" not in ds.dims
+
+            # cut down dataset to only non-null times, where you have both velocity
+            # and pressure measurements. If only 1 of these points, you still cannot
+            # simulate the storm as you can't calculate and add translational V
+            valid_t = ds.time.notnull() & ds.v_total.notnull() & ds.pstore.notnull()
+            if valid_t.sum() < 2:
+                raise NoDataError(missing_necessary_data_warning_str)
+            ds = ds.sel(time=valid_t)
+
+            # fill in RMW
+            ds["rmstore"] = ds.rmstore.fillna(ds.rmstore_estimated)
+            ds["storm_radius"] = ds.storm_radius.fillna(ds.storm_radius_estimated)
+
+            # CONVERT TO GEOCLAW FORMAT
+
+            # assign basin to be the basin where track originates
+            # in case track moves across basins
+            self.basin = "NOT_SET"
+            self.name = ds.name.item()
+            self.ID = ds.sid.item()
+
+            # convert datetime64 to datetime.datetime
+            self.t = []
+            years = ds.datetime.dt.year.values
+            months = ds.datetime.dt.month.values
+            days = ds.datetime.dt.day.values
+            hours = ds.datetime.dt.hour.values
+            minutes = ds.datetime.dt.minute.values
+            seconds = ds.datetime.dt.second.values
+            for dx in range(len(ds.datetime)):
+                self.t.append(
+                    datetime.datetime(
+                        years[dx],
+                        months[dx],
+                        days[dx],
+                        hours[dx],
+                        minutes[dx],
+                        seconds[dx],
+                    )
+                )
+
+            # set landfall events
+            self.event = np.array([""] * len(ds.datetime))
+            landfalls = (ds.dist2land <= 0) & (ds.dist2land.shift(time=1) > 0)
+
+            for i in range(landfalls.sum().item()):
+                ix = landfalls.argmax("time").item()
+                self.event[ix] = "L"
+                landfalls[ix] = False
+
+            # time offset
+            if (self.event == "L").any():
+                # if landfall, use last landfall
+                self.time_offset = np.array(self.t)[self.event == "L"][-1]
+            else:
+                # if no landfall, use last time of storm
+                self.time_offset = self.t[-1]
+
+            # Classification, note that this is not the category of the storm
+            self.classification = ["NOT_SET"] * len(self.event)
+            self.eye_location = np.array([ds.longstore, ds.latstore]).T
+
+            # Intensity information - for now, including only common, basic intensity
+            # info.
+            # TODO: add more detailed info for storms that have it
+
+            self.max_wind_speed = ds.v_total.where(ds.v_total.notnull(), -1).values
+            self.central_pressure = (
+                units.convert(ds.pstore, "hPa", "Pa")
+                .where(ds.pstore.notnull(), -1)
+                .values
+            )
+            self.max_wind_radius = (
+                units.convert(ds.rmstore, "km", "m")
+                .where(ds.rmstore.notnull(), -1)
+                .values
+            )
+            self.storm_radius = (
+                units.convert(ds.storm_radius, "km", "m")
+                .where(ds.storm_radius.notnull(), -1)
+                .values
+            )
+
+            # warn if you have missing vals for RMW or ROCI
+            if (self.max_wind_radius.max()) == -1 or (self.storm_radius.max() == -1):
+                warnings.warn(missing_data_warning_str)
+
+    def read_emanuel(self, path, storm_index, ensemble=None, verbose=False):
+        r"""Read in Kerry Emanuel's storm file
+        This reads in the netcdf-formatted tracks from Kerry Emanuel.
+        Correspondence September 2018.The model, scenario, time period, and storm index
+        must be found within the filename. e.g. ``ccsm4_rcp85_2007_2025_0``,
+        ``hadgem5_rcp45_2035_2045_10``. ``model_scenario_period`` is equivalent to
+        filename.
+
+        Assumes these variables exist in Emanuel dataset:
+           datetime
+           longstore
+           latstore
+           rmstore (central max wind radius)
+           pstore (central pressure)
+           v_total
+
+        :Input:
+        - *path* (string) Path to the zarr store to be read.
+        - *storm_index* (int) Integer index of storm to read
+        - *ensemble* (int, optional) If there are multiple ensemble members created
+            for each track, the index of the member that you would like to model
+            must be specified.
+        - *verbose* (bool) Unused but needed for consistency in function signature
+
+        :Raises:
+        - ImportError if xarray not found
+        - KeyError if provided storm name is not found in
+        given file (assumes path is correct)
+        """
+        import xarray as xr
+
+        with xr.open_zarr(path, drop_variables=["time"], chunks=None) as ds:
+            try:
+                storm = ds.sel(storm=storm_index, drop=True)
+            except KeyError as e:
+                print("Provided storm name/index not found in " "the file.")
+                raise e
+
+            # make sure seed index is specified if exists
+            if "ensemble" in ds.dims:
+                assert isinstance(ensemble, int), (
+                    "If ``ensemble`` is a dimension in input file, must supply an "
+                    f"integer ``ensemble`` kwarg value. You supplied {ensemble}"
+                )
+                storm = storm.sel(ensemble=ensemble, drop=True)
+
+            # drop NaT vals
+            storm = storm.sel(time=storm.v_total.notnull())
+
+            # make sure we don't have additional dimensions we forgot to collapse over
+            assert storm.rmstore.ndim == 1, storm.rmstore.dims
+
+            # set time
+            # convert from numpy to python datetime
+            # self.t is a list, as opposed to numpy array
+            self.t = pd.to_datetime(storm.datetime).to_pydatetime().tolist()
+
+            # eye location (n by n)
+            self.eye_location = np.vstack(
+                [storm.longstore.values, storm.latstore.values]
+            ).T
+
+            # max wind speed (m/s)
+            # array of single value
+            self.max_wind_speed = storm.v_total.values
+
+            # 'The radius (km) of maximum circular wind
+            # along each track' -> convert to m
+            self.max_wind_radius = units.convert(storm.rmstore, "km", "m").values
+
+            # central pressure (Pascal)
+            self.central_pressure = units.convert(storm.pstore, "hPa", "Pa").values
+
+            # outer storm radius
+            self.storm_radius = units.convert(storm.storm_radius, "km", "m").values
+
+            # storm name
+            self.name = storm.sid.item()
+            self.ID = self.name
+
+            # attributes not available
+            #############
+            # proper way is to use shapely / us shapefile to find
+            # the timesteps at which given storm makes landfall ('L' event)
+            # this is not necessary for geoclaw. so instead we are
+            # populating event with array of empty strings
+            # length
+            num_timesteps = len(storm["datetime"])
+            self.event = np.empty(num_timesteps, dtype=str)
+            self.classification = np.empty(num_timesteps, dtype=str)
+
+            # use last timestep (recommended by IB)
+            self.time_offset = self.t[-1]
 
     # =========================================================================
     # Write Routines

@@ -22,13 +22,15 @@ them upstream code that arrived with those syncs.
   avoids array indexing errors. The file also imports `nghost` and `sea_level` without using them.
   CIL history of this change: commits `bb5fe080` (2019-05) to `332a9d5d` (2022-08), with PRs #20, #23
   and #24; they stay reachable through the tag above.
-
-## To port
-
-- The loaders for our processed IBTrACS (`read_ibtracs_processed`) and our processed version of Kerry
-  Emanuel's tracks (`read_emanuel`), with their two `_supported_formats` entries, from the old
-  `src/python/geoclaw/surge/storm.py` into `Storm` in `src/python/geoclaw/met/storm.py`. Upstream moved
-  the storm code to `met/` in 2026, and `surge/storm.py` is now an alias.
+- `src/python/geoclaw/met/storm.py`: the loaders for our processed IBTrACS (`read_ibtracs_processed`)
+  and our processed version of Kerry Emanuel's tracks (`read_emanuel`), with their two
+  `_supported_formats` entries, copied into `Storm` from the old `src/python/geoclaw/surge/storm.py`.
+  Upstream moved the storm code to `met/` in 2026, and `surge/storm.py` is now an alias. The method
+  bodies are unchanged, except that each imports `xarray` itself, as upstream's readers do; the module
+  now also imports `datetime`, `warnings`, `pandas` and `units`, which they use. They set the `Storm`
+  attributes directly, and those attributes forward to `self.track`.
+  CIL history: `read_emanuel` since `115ff305` (2018-10), updated for the new track format in PR #20
+  (2022-05); `read_ibtracs_processed` from PR #18 (2020-08).
 
 ## Not ported
 
