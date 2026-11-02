@@ -1,0 +1,74 @@
+# CIL changes to GeoClaw
+
+Base: clawpack/geoclaw `7e66181` (2026-10-24, merge of PR #767).
+Previous CIL `main`: tag `pre-upstream-sync-2026-10-29` (`54c7e20`), the version in the Docker image
+at the time of this update.
+
+To find every CIL change, the old `main` was compared with `162d2c2f` (2025-06-12, merge of PR #655),
+the upstream commit closest to it: they differ in 19 files, listed below. The earlier syncs were
+squash-merged, so git's merge base with upstream (`acac99be`, 2024-03-28) would show 102 files, most of
+them upstream code that arrived with those syncs.
+
+## Ported
+
+- `src/2d/shallow/bc2amr.f90`: copied whole from the old `main`; upstream has not changed this file
+  since 2018. It defines the user-defined boundary condition (type 0), which upstream leaves as a stop
+  ("A user defined boundary condition was not provided."): zero-order extrapolation, plus a boundary
+  velocity error when the momentum in the non-ghost cells next to a boundary exceeds 5 m2/s
+  (`mom_norm_thresh`; `hu` on the west and east boundaries, `hv` on the south and north). Each boundary
+  has its own exit code, 2 (west), 3 (east), 4 (south) or 5 (north), to avoid return code 1, which other
+  issues also raise; pyTC uses the code to grow the domain on that side. Periodic boundary conditions
+  can create patches with only ghost cells, so the boundary cells of those patches are not set, which
+  avoids array indexing errors. The file also imports `nghost` and `sea_level` without using them.
+  CIL history of this change: commits `bb5fe080` (2019-05) to `332a9d5d` (2022-08), with PRs #20, #23
+  and #24; they stay reachable through the tag above.
+
+## To port
+
+- The loaders for our processed IBTrACS (`read_ibtracs_processed`) and our processed version of Kerry
+  Emanuel's tracks (`read_emanuel`), with their two `_supported_formats` entries, from the old
+  `src/python/geoclaw/surge/storm.py` into `Storm` in `src/python/geoclaw/met/storm.py`. Upstream moved
+  the storm code to `met/` in 2026, and `surge/storm.py` is now an alias.
+
+## Not ported
+
+Already upstream:
+- `src/python/geoclaw/meson.build`: the fix to include `data_storms.py` (CIL #45). Upstream lists it for
+  both `met/` and `surge/`.
+- `src/python/geoclaw/surge/storm.py`, apart from the two readers: the `construct_fields` fix (`x` to
+  `r`) and the `os` and `data_storms` imports are in upstream's `met/`. The rest is formatting and a
+  top-level `import xarray` (upstream imports it inside each function).
+
+Sync leftovers (upstream changes that the squash syncs copied only in part):
+- `src/python/geoclaw/data.py`: `'willoughby'` in `storm_spec_not_implemented`. Upstream added it in
+  `860ba23` (2024-06) and removed it in `7cb1bd8` (2025-03), when Willoughby was enabled.
+- `src/python/geoclaw/fgout_tools.py`: `read_fgout_grids_data_pre511` held the body of the post-5.11
+  reader, so it could not read pre-5.11 data. pyTC does not use this module.
+- `examples/tsunami/chile2010_fgmax-fgout/make_fgout_animation_with_transect.py`: upstream renamed it to
+  `make_fgout_animation_transect.py` in `b435c3b4` (2024-12); the old `main` had both.
+
+Formatting only (same behavior):
+- `src/python/geoclaw/surge/plot.py`: quotes, line breaks, import order and grouping, and an `f` prefix
+  on a string with no fields.
+- `src/2d/shallow/fgout_module.f90`, `src/2d/shallow/set_eta_init.f90`,
+  `src/2d/shallow/surge/storm_module.f90`, `src/python/geoclaw/util.py`, `tests/test_storm.py`:
+  whitespace or blank lines only.
+
+Tests, CI and examples (not used by our runs):
+- `.github/workflows/testing.yml`: CIL's version targets `main` and ClimateImpactLab/clawpack and drops
+  flake8. GitHub Actions has never run on this fork; upstream's version only runs on `master`.
+- `.travis.yml`: removed by CIL (2025) and by upstream (2026).
+- `.gitignore`: CIL added `xgeoclaw_omp` and `.vscode`.
+- `examples/storm-surge/isaac/test_isaac.py`: import order and a `pass`; upstream rewrote the test.
+- `tests/old_dtopotools.py`: CIL fixed calls to numpy/pyplot in this test helper in 2019. Upstream's
+  test only uses `set_geometry`, which does not make those calls.
+- `tests/test_etopo1.py`: one commented-out line; upstream removed the file in 2026.
+
+Unused:
+- `src/2d/shallow/fgmax_values_wind.f90` (2019, "make fgmax for wind"): a wind version of
+  `fgmax_values` that no Makefile in GeoClaw or pyTC compiles.
+
+## Updating from upstream
+
+Rebase the CIL commits onto a newer clawpack/geoclaw commit and update the Base line. Avoid squash
+merges: they hide the shared history from git, which is what made this rebuild necessary.
