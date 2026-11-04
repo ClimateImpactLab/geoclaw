@@ -11,15 +11,14 @@ them upstream code that arrived with those syncs.
 
 ## Ported
 
-- `src/2d/shallow/bc2amr.f90`: copied whole from the old `main`; upstream has not changed this file
+- `src/2d/shallow/bc2amr.f90`: from the old `main`; upstream has not changed this file
   since 2018. It defines the user-defined boundary condition (type 0), which upstream leaves as a stop
   ("A user defined boundary condition was not provided."): zero-order extrapolation, plus a boundary
   velocity error when the momentum in the non-ghost cells next to a boundary exceeds 5 m2/s
   (`mom_norm_thresh`; `hu` on the west and east boundaries, `hv` on the south and north). Each boundary
   has its own exit code, 2 (west), 3 (east), 4 (south) or 5 (north), to avoid return code 1, which other
-  issues also raise; pyTC uses the code to grow the domain on that side. Periodic boundary conditions
-  can create patches with only ghost cells, so the boundary cells of those patches are not set, which
-  avoids array indexing errors. The file also imports `nghost` and `sea_level` without using them.
+  issues also raise; pyTC uses the code to grow the domain on that side. Two pieces of the old file are
+  not ported; see Not ported below.
   CIL history of this change: commits `bb5fe080` (2019-05) to `332a9d5d` (2022-08), with PRs #20, #23
   and #24; they stay reachable through the tag above.
 - `src/python/geoclaw/met/storm.py`: the loaders for our processed IBTrACS (`read_ibtracs_processed`)
@@ -35,6 +34,12 @@ them upstream code that arrived with those syncs.
 ## Not ported
 
 Already upstream:
+- `src/2d/shallow/bc2amr.f90`, the early return for patches with only ghost cells (CIL #24: "periodic
+  BCs can create patches with only ghost cells in them. This is not supposed to happen but does."):
+  amrclaw fixed the cause in `prefilp.f90`, which GeoClaw compiles, in clawpack/amrclaw PRs #287
+  (2023-11) and #315 (2026-08). In a GUSTAV 2002 run with x periodic, the return was never taken with
+  the `prefilp.f90` of amrclaw `06b9bbf` (2026-10), and 21,376 times with the one from before PR #287,
+  with identical output (coastal-core, `geoclaw_runner/slurm/build_guardlog.sbatch`).
 - `src/python/geoclaw/meson.build`: the fix to include `data_storms.py` (CIL #45). Upstream lists it for
   both `met/` and `surge/`.
 - `src/python/geoclaw/surge/storm.py`, apart from the two readers: the `construct_fields` fix (`x` to
@@ -67,6 +72,9 @@ Tests, CI and examples (not used by our runs):
 - `tests/test_etopo1.py`: one commented-out line; upstream removed the file in 2026.
 
 Unused:
+- `src/2d/shallow/bc2amr.f90`: the imports of `nghost` and `sea_level`, left over from earlier versions
+  of the boundary check (`sea_level` unused since `17e03663`, 2020-07, and `nghost` since `332a9d5d`,
+  2022-08).
 - `src/2d/shallow/fgmax_values_wind.f90` (2019, "make fgmax for wind"): a wind version of
   `fgmax_values` that no Makefile in GeoClaw or pyTC compiles.
 

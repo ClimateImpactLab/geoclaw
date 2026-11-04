@@ -88,9 +88,8 @@
 subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
                   xlo_patch, xhi_patch, ylo_patch, yhi_patch) 
 
-    use amr_module, only: mthbc, xlower, ylower, xupper, yupper, nghost
+    use amr_module, only: mthbc, xlower, ylower, xupper, yupper
     use amr_module, only: xperdom,yperdom,spheredom
-    use geoclaw_module, only: sea_level
 
     implicit none
 
@@ -113,13 +112,6 @@ subroutine bc2amr(val,aux,nrow,ncol,meqn,naux, hx, hy, level, time,   &
     ! Use periodic boundary condition specialized code only, if only one 
     ! boundary is periodic we still proceed below
     if (xperdom .and. (yperdom .or. spheredom)) then
-        return
-    end if
-
-    ! Another case occurs when this grid covers only ghost cells (seems to happen only
-    ! when domain is periodic). In this case, we don't need to set anything and, if we
-    ! try, the array indexing will be out of bounds.
-    if (xlo_patch == xupper .or. xhi_patch == xlower .or. ylo_patch == yupper .or. yhi_patch == ylower) then
         return
     end if
 
