@@ -893,7 +893,8 @@ class StormTrack(Track):
 
         :Input:
          - *path* (string) Path to the file to be read.
-         - *sid* (string, optional) IBTrACS-supplied unique track identifier.
+         - *sid* (string) IBTrACS-supplied unique track identifier.
+         - *start_date* (optional) Only used when several storms share *sid*.
 
         :Raises:
          - *ValueError* If the method cannot find the matching storm then a
@@ -933,14 +934,13 @@ class StormTrack(Track):
                 raise NoDataError(missing_necessary_data_warning_str)
             ds = ds.sel(time=valid_t)
 
-            # fill in RMW
+            # fill in RMW and ROCI from their estimated values
             ds["rmstore"] = ds.rmstore.fillna(ds.rmstore_estimated)
             ds["storm_radius"] = ds.storm_radius.fillna(ds.storm_radius_estimated)
 
             # CONVERT TO GEOCLAW FORMAT
 
-            # assign basin to be the basin where track originates
-            # in case track moves across basins
+            # the basin is not set from these files
             self.basin = "NOT_SET"
             self.name = ds.name.item()
             self.ID = ds.sid.item()
@@ -993,7 +993,7 @@ class StormTrack(Track):
     @classmethod
     def read_emanuel(cls, path, storm_index, ensemble=None, verbose=False):
         r"""Read in Kerry Emanuel's storm file
-        This reads in the netcdf-formatted tracks from Kerry Emanuel.
+        This reads in the zarr-formatted tracks from Kerry Emanuel.
         Correspondence September 2018.The model, scenario, time period, and storm index
         must be found within the filename. e.g. ``ccsm4_rcp85_2007_2025_0``,
         ``hadgem5_rcp45_2035_2045_10``. ``model_scenario_period`` is equivalent to
@@ -1039,7 +1039,7 @@ class StormTrack(Track):
                 )
                 storm = storm.sel(ensemble=ensemble, drop=True)
 
-            # drop NaT vals
+            # drop the times without a wind speed
             storm = storm.sel(time=storm.v_total.notnull())
 
             # make sure we don't have additional dimensions we forgot to collapse over

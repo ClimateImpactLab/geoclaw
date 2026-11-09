@@ -33,7 +33,8 @@ them upstream code that arrived with those syncs.
   `datetime`), with `read_ibtracs_processed`'s `classification` an array instead of a list; and in
   `read_ibtracs_processed`, missing values stay `NaN` (they were `-1`, which upstream's `write_geoclaw`
   deprecates) and the missing-radius warning fires when any radius is missing, as in upstream's
-  `read_ibtracs` (it fired only when all were).
+  `read_ibtracs` (it fired only when all were). Docstrings and comments that misdescribed the code
+  (`sid` optional, "netcdf" for a zarr store, `# drop NaT vals`, `# fill in RMW`) are corrected.
   CIL history: `read_emanuel` since `115ff305` (2018-10), updated for the new track format in PR #20
   (2022-05); `read_ibtracs_processed` from PR #18 (2020-08).
 
