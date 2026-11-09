@@ -973,25 +973,16 @@ class StormTrack(Track):
             # info.
             # TODO: add more detailed info for storms that have it
 
-            self.max_wind_speed = ds.v_total.where(ds.v_total.notnull(), -1).values
-            self.central_pressure = (
-                units.convert(ds.pstore, "hPa", "Pa")
-                .where(ds.pstore.notnull(), -1)
-                .values
-            )
-            self.max_wind_radius = (
-                units.convert(ds.rmstore, "km", "m")
-                .where(ds.rmstore.notnull(), -1)
-                .values
-            )
-            self.storm_radius = (
-                units.convert(ds.storm_radius, "km", "m")
-                .where(ds.storm_radius.notnull(), -1)
-                .values
-            )
+            # Missing values stay NaN, as in upstream's readers (write_geoclaw
+            # deprecates -1 as the missing mark).
+            self.max_wind_speed = ds.v_total.values
+            self.central_pressure = units.convert(ds.pstore, "hPa", "Pa").values
+            self.max_wind_radius = units.convert(ds.rmstore, "km", "m").values
+            self.storm_radius = units.convert(ds.storm_radius, "km", "m").values
 
-            # warn if you have missing vals for RMW or ROCI
-            if (self.max_wind_radius.max()) == -1 or (self.storm_radius.max() == -1):
+            # warn if any RMW or ROCI is missing, as upstream's read_ibtracs does
+            if (np.isnan(self.max_wind_radius).any()
+                    or np.isnan(self.storm_radius).any()):
                 warnings.warn(missing_data_warning_str)
 
         self.file_paths.append(path)

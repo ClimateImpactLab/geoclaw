@@ -28,9 +28,12 @@ them upstream code that arrived with those syncs.
   `StormTrack` classmethods in `met/track.py` that build a new track, record `file_paths` and
   `file_format`, and return it; `met/storm.py` has a `Storm` method for each that adopts the track, as
   for the other formats, and their two `_supported_formats` entries. The method bodies are the old
-  ones, with two changes to match upstream's readers: each imports `xarray` itself, and `t` is a
+  ones, with three changes to match upstream's readers: each imports `xarray` itself; `t` is a
   `datetime64[s]` array and `time_offset` a `datetime64` (they were a list of `datetime` objects and a
-  `datetime`), with `read_ibtracs_processed`'s `classification` an array instead of a list.
+  `datetime`), with `read_ibtracs_processed`'s `classification` an array instead of a list; and in
+  `read_ibtracs_processed`, missing values stay `NaN` (they were `-1`, which upstream's `write_geoclaw`
+  deprecates) and the missing-radius warning fires when any radius is missing, as in upstream's
+  `read_ibtracs` (it fired only when all were).
   CIL history: `read_emanuel` since `115ff305` (2018-10), updated for the new track format in PR #20
   (2022-05); `read_ibtracs_processed` from PR #18 (2020-08).
 
