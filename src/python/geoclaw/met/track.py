@@ -945,25 +945,8 @@ class StormTrack(Track):
             self.name = ds.name.item()
             self.ID = ds.sid.item()
 
-            # convert datetime64 to datetime.datetime
-            self.t = []
-            years = ds.datetime.dt.year.values
-            months = ds.datetime.dt.month.values
-            days = ds.datetime.dt.day.values
-            hours = ds.datetime.dt.hour.values
-            minutes = ds.datetime.dt.minute.values
-            seconds = ds.datetime.dt.second.values
-            for dx in range(len(ds.datetime)):
-                self.t.append(
-                    datetime.datetime(
-                        years[dx],
-                        months[dx],
-                        days[dx],
-                        hours[dx],
-                        minutes[dx],
-                        seconds[dx],
-                    )
-                )
+            # times as a datetime64[s] array, like upstream's readers
+            self.t = ds.datetime.values.astype("datetime64[s]")
 
             # set landfall events
             self.event = np.array([""] * len(ds.datetime))
@@ -977,13 +960,13 @@ class StormTrack(Track):
             # time offset
             if (self.event == "L").any():
                 # if landfall, use last landfall
-                self.time_offset = np.array(self.t)[self.event == "L"][-1]
+                self.time_offset = self.t[self.event == "L"][-1]
             else:
                 # if no landfall, use last time of storm
                 self.time_offset = self.t[-1]
 
             # Classification, note that this is not the category of the storm
-            self.classification = ["NOT_SET"] * len(self.event)
+            self.classification = np.full(len(self.event), "NOT_SET")
             self.eye_location = np.array([ds.longstore, ds.latstore]).T
 
             # Intensity information - for now, including only common, basic intensity
@@ -1071,10 +1054,8 @@ class StormTrack(Track):
             # make sure we don't have additional dimensions we forgot to collapse over
             assert storm.rmstore.ndim == 1, storm.rmstore.dims
 
-            # set time
-            # convert from numpy to python datetime
-            # self.t is a list, as opposed to numpy array
-            self.t = pd.to_datetime(storm.datetime).to_pydatetime().tolist()
+            # set time: a datetime64[s] array, like upstream's readers
+            self.t = pd.to_datetime(storm.datetime).values.astype("datetime64[s]")
 
             # eye location (n by n)
             self.eye_location = np.vstack(
