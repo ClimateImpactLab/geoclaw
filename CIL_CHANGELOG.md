@@ -21,13 +21,14 @@ them upstream code that arrived with those syncs.
   not ported; see Not ported below.
   CIL history of this change: commits `bb5fe080` (2019-05) to `332a9d5d` (2022-08), with PRs #20, #23
   and #24; they stay reachable through the tag above.
-- `src/python/geoclaw/met/storm.py`: the loaders for our processed IBTrACS (`read_ibtracs_processed`)
-  and our processed version of Kerry Emanuel's tracks (`read_emanuel`), with their two
-  `_supported_formats` entries, copied into `Storm` from the old `src/python/geoclaw/surge/storm.py`.
-  Upstream moved the storm code to `met/` in 2026, and `surge/storm.py` is now an alias. The method
-  bodies are unchanged, except that each imports `xarray` itself, as upstream's readers do; the module
-  now also imports `datetime`, `warnings`, `pandas` and `units`, which they use. They set the `Storm`
-  attributes directly, and those attributes forward to `self.track`.
+- `src/python/geoclaw/met/track.py` and `met/storm.py`: the loaders for our processed IBTrACS
+  (`read_ibtracs_processed`) and our processed version of Kerry Emanuel's tracks (`read_emanuel`), from
+  the old `src/python/geoclaw/surge/storm.py`. Upstream moved the storm code to `met/` in 2026, and
+  `surge/storm.py` is now an alias. Like upstream's readers (`read_atcf`, `read_ibtracs`, ...), they are
+  `StormTrack` classmethods in `met/track.py` that build a new track, record `file_paths` and
+  `file_format`, and return it; `met/storm.py` has a `Storm` method for each that adopts the track, as
+  for the other formats, and their two `_supported_formats` entries. The method bodies are the old
+  ones, except that each imports `xarray` itself, as upstream's readers do.
   CIL history: `read_emanuel` since `115ff305` (2018-10), updated for the new track format in PR #20
   (2022-05); `read_ibtracs_processed` from PR #18 (2020-08).
 
