@@ -35,6 +35,10 @@ them upstream code that arrived with those syncs.
   deprecates) and the missing-radius warning fires when any radius is missing, as in upstream's
   `read_ibtracs` (it fired only when all were). Docstrings and comments that misdescribed the code
   (`sid` optional, "netcdf" for a zarr store, `# drop NaT vals`, `# fill in RMW`) are corrected.
+  One fix to the old body: when several storms share a SID, `read_ibtracs_processed` compared
+  `start_date` with the shared integer `time` index instead of each storm's first `datetime`, so
+  that branch could not work (no SID repeats in our processed IBTrACS); it now uses the first
+  `datetime`, and a missing `start_date` raises `ValueError` instead of failing an `assert`.
   CIL history: `read_emanuel` since `115ff305` (2018-10), updated for the new track format in PR #20
   (2022-05); `read_ibtracs_processed` from PR #18 (2020-08).
 

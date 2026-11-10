@@ -894,11 +894,13 @@ class StormTrack(Track):
         :Input:
          - *path* (string) Path to the file to be read.
          - *sid* (string) IBTrACS-supplied unique track identifier.
-         - *start_date* (optional) Only used when several storms share *sid*.
+         - *start_date* (np.datetime64 or string, optional) If several storms
+             share *sid*, the one whose first time is closest to this date.
 
         :Raises:
          - *ValueError* If the method cannot find the matching storm then a
-             value error is risen.
+             value error is risen, as when several storms share *sid* and no
+             *start_date* is given.
         """
         import xarray as xr
 
@@ -914,15 +916,17 @@ class StormTrack(Track):
                     raise ValueError("SID not found in provided file")
                 else:
                     # see if a date was provided for multiple unnamed storms
-                    assert start_date is not None, ValueError(
-                        "Multiple storms identified and no start_date specified."
-                    )
+                    if start_date is None:
+                        raise ValueError(
+                            "Multiple storms identified and no start_date specified."
+                        )
 
-                    start_times = ds.time.isel(time=0)
+                    # each storm's first time (``time`` is a shared integer index)
+                    start_times = ds.datetime.isel(time=0)
                     start_date = np.datetime64(start_date)
 
                     # find storm with start date closest to provided
-                    storm_ix = abs(start_times - start_date).argmin()
+                    storm_ix = abs(start_times - start_date).argmin().item()
                     ds = ds.isel(storm=storm_ix).squeeze()
                     assert "storm" not in ds.dims
 
