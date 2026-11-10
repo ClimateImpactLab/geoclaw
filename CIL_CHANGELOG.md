@@ -39,6 +39,8 @@ them upstream code that arrived with those syncs.
   `start_date` with the shared integer `time` index instead of each storm's first `datetime`, so
   that branch could not work (no SID repeats in our processed IBTrACS); it now uses the first
   `datetime`, and a missing `start_date` raises `ValueError` instead of failing an `assert`.
+  `tests/test_cil_readers.py` (CIL's own) holds both readers to the contract of upstream's readers,
+  with small inputs built in each test.
   CIL history: `read_emanuel` since `115ff305` (2018-10), updated for the new track format in PR #20
   (2022-05); `read_ibtracs_processed` from PR #18 (2020-08).
 
